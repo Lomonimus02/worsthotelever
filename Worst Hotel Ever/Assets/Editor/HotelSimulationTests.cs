@@ -28,6 +28,7 @@ namespace WorstHotel
             Run(passed, "Save roundtrip preserves world and releases held objects", SaveRoundtrip);
             Run(passed, "Backup recovery, corrupt primary repair and checksum", BackupRecovery);
             Run(passed, "Future schema and invalid state never overwrite checkpoint", SaveValidation);
+            Run(passed, "Explicit new game archives both old files and resets slot safely", StartNewArchive);
             Run(passed, "Saved moving guest resumes through the door", SavedRoute);
             Run(passed, "Two complete shifts remain valid after every command", TwoShifts);
             return passed;
@@ -383,6 +384,36 @@ namespace WorstHotel
                 Throws<NotSupportedException>(() => HotelSaveStore.Load(path));
                 Throws<NotSupportedException>(() => HotelSaveStore.Save(sim.State, path));
                 Assert(File.ReadAllText(path).Contains("99"), "Future version overwritten");
+            });
+        }
+        private static void StartNewArchive()
+        {
+            WithSave(path =>
+            {
+                HotelSimulation previous = New(); HotelSaveStore.Save(previous.State, path);
+                previous.State.cash = 345; HotelSaveStore.Save(previous.State, path);
+                string oldPrimary = File.ReadAllText(path), oldBackup = File.ReadAllText(path + ".bak");
+                HotelSimulation next = New();
+                Room(next, 101).water = float.NaN;
+                Throws<InvalidDataException>(() => HotelSaveStore.StartNew(next.State, path));
+                Assert(File.ReadAllText(path) == oldPrimary && File.ReadAllText(path + ".bak") == oldBackup, "Invalid new game touched old slot");
+                Room(next, 101).water = 0;
+                HotelSaveStore.StartNew(next.State, path);
+                Assert(HotelSaveStore.Load(path).worldId == next.State.worldId, "New world not installed");
+                Assert(HotelSaveStore.Load(path + ".bak").worldId == next.State.worldId, "Backup contains another world");
+                string archiveRoot = Path.Combine(Path.GetDirectoryName(path), "archive");
+                string[] archives = Directory.GetDirectories(archiveRoot);
+                Assert(archives.Length == 1, "Missing unique archive");
+                Assert(File.ReadAllText(Path.Combine(archives[0], "primary.json")) == oldPrimary, "Old primary not archived exactly");
+                Assert(File.ReadAllText(Path.Combine(archives[0], "backup.json")) == oldBackup, "Old backup not archived exactly");
+                Throws<InvalidOperationException>(() => HotelSaveStore.Save(previous.State, path));
+
+                // A locked backup fails after installation of the new primary on Windows. The old
+                // primary must be restored, and the byte-for-byte backup archive must survive.
+                string beforeFailure = File.ReadAllText(path), backupBeforeFailure = File.ReadAllText(path + ".bak");
+                using (var heldBackup = new FileStream(path + ".bak", FileMode.Open, FileAccess.Read, FileShare.Read))
+                    Throws<IOException>(() => HotelSaveStore.StartNew(previous.State, path));
+                Assert(File.ReadAllText(path) == beforeFailure && File.ReadAllText(path + ".bak") == backupBeforeFailure, "Failed new-game replacement lost old slot");
             });
         }
         private static void SavedRoute()

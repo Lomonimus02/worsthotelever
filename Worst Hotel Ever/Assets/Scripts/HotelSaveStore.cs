@@ -22,6 +22,117 @@ namespace WorstHotel
             public string payload;
         }
 
+        // Explicit new-game action only; ordinary Save deliberately cannot replace another world.
+        public static void StartNew(HotelState state, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Не задан путь сохранения.", nameof(path));
+            lock (Gate)
+            {
+                Validate(state);
+                string fullPath = Path.GetFullPath(path);
+                string directory = Path.GetDirectoryName(fullPath);
+                Directory.CreateDirectory(directory);
+                string backup = fullPath + ".bak";
+                // A directory in place of a slot is an error, not an absent previous world.
+                if (Directory.Exists(fullPath) || Directory.Exists(backup)) throw new IOException("Путь слота занят каталогом.");
+                bool hadPrimary = File.Exists(fullPath), hadBackup = File.Exists(backup);
+                string token = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'") + "-" + Guid.NewGuid().ToString("N");
+                string temporary = fullPath + ".new-" + token + ".tmp";
+                string nextBackup = fullPath + ".backup-" + token + ".tmp";
+                string archivedPrimary = null, archivedBackup = null;
+                bool replacementStarted = false;
+                try
+                {
+                    // Save to a distinct path first; invalid new data never touches an old slot.
+                    Save(state, temporary);
+                    CopyDurable(temporary, nextBackup);
+                    Read(nextBackup);
+                    if (hadPrimary || hadBackup)
+                    {
+                        string archive = Path.Combine(directory, "archive", Path.GetFileName(fullPath) + "-" + token);
+                        Directory.CreateDirectory(archive);
+                        if (hadPrimary)
+                        {
+                            archivedPrimary = Path.Combine(archive, "primary.json");
+                            CopyDurable(fullPath, archivedPrimary);
+                        }
+                        if (hadBackup)
+                        {
+                            archivedBackup = Path.Combine(archive, "backup.json");
+                            CopyDurable(backup, archivedBackup);
+                        }
+                    }
+                    replacementStarted = true;
+                    Install(temporary, fullPath);
+                    Install(nextBackup, backup);
+                }
+                catch (Exception failure)
+                {
+                    if (replacementStarted)
+                    {
+                        // Archive copies are immutable. Restore through same-volume atomic replacements,
+                        // including the original backup, if the second installation failed.
+                        var errors = new List<Exception> { failure };
+                        try { Restore(archivedPrimary, fullPath); } catch (Exception error) { errors.Add(error); }
+                        try { Restore(archivedBackup, backup); } catch (Exception error) { errors.Add(error); }
+                        if (errors.Count > 1)
+                            throw new AggregateException("Не удалось полностью восстановить слот. Старые файлы сохранены в archive.", errors);
+                    }
+                    throw;
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                    if (File.Exists(nextBackup)) File.Delete(nextBackup);
+                }
+            }
+        }
+
+        private static void Install(string source, string destination)
+        {
+            if (File.Exists(destination)) File.Replace(source, destination, null);
+            else File.Move(source, destination);
+        }
+
+        private static void Restore(string archive, string destination)
+        {
+            if (archive == null)
+            {
+                // No previous file existed here: only an uncommitted new-game snapshot is removed.
+                if (File.Exists(destination)) File.Delete(destination);
+                return;
+            }
+            // An atomic install can fail while its destination remains untouched (e.g. a read lock).
+            // Do not try to replace that already-correct file during rollback.
+            if (File.Exists(destination) && IdenticalFiles(archive, destination)) return;
+            string temporary = destination + ".rollback-" + Guid.NewGuid().ToString("N") + ".tmp";
+            try { CopyDurable(archive, temporary); Install(temporary, destination); }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+
+        private static void CopyDurable(string source, string destination)
+        {
+            using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                input.CopyTo(output);
+                output.Flush(true);
+            }
+            if (!IdenticalFiles(source, destination)) throw new IOException("Проверка архивной копии не пройдена; исходный слот оставлен на месте.");
+        }
+
+        private static bool IdenticalFiles(string source, string destination)
+        {
+            using (SHA256 hash = SHA256.Create())
+            using (var original = File.OpenRead(source))
+            using (var copied = File.OpenRead(destination))
+            {
+                string expected = BitConverter.ToString(hash.ComputeHash(original));
+                string actual = BitConverter.ToString(hash.ComputeHash(copied));
+                return expected == actual;
+            }
+        }
+
         public static void Save(HotelState state, string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Не задан путь сохранения.", nameof(path));
