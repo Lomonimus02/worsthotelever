@@ -58,6 +58,8 @@ namespace WorstHotel.BuildTools
             }
             string readme=Path.Combine(Root,"README_PRE_MVP.md");
             if(File.Exists(readme))File.Copy(readme,Path.Combine(folder,"READ_ME_RU.md"),true);
+            string status=Path.Combine(Root,"docs","IMPLEMENTATION_STATUS.md");
+            if(File.Exists(status)){Directory.CreateDirectory(Path.Combine(folder,"docs"));File.Copy(status,Path.Combine(folder,"docs","IMPLEMENTATION_STATUS.md"),true);}
         }
     }
 }

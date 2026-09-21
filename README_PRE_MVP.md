@@ -45,6 +45,8 @@ Steam: отдельная кнопка «Тест Steam (AppID 480)». Это я
 
 ## Для разработки
 
+Этот раздел относится к исходному проекту; в архив исполняемой игры исходники проекта не входят.
+
 Unity: 6000.3.2f1, URP 17.3.0, Input System 1.17.0, NGO 2.7.0; проект `Worst Hotel Ever/`.
 
 - `./Tools/Build-Windows.ps1` — нативные тесты и Windows development build.
