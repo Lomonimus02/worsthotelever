@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Unity.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -21,6 +22,8 @@ namespace WorstHotel
         public ulong LocalId => Manager != null ? Manager.LocalClientId : 0;
         public string Status = "";
         public string LastSaved = "";
+        public bool SteamMode { get; private set; }
+        int operation;
         public Action<string> Feedback;
         float broadcastAt, startedAt, saveAt;
         string password = "";
@@ -61,11 +64,15 @@ namespace WorstHotel
             Connecting = true;
         }
 
-        public void Host(bool load, ushort port, string pass)
+        public async void Host(bool load, ushort port, string pass)
         {
-            if(Manager != null) return;
+            if(Manager != null || Connecting) return;
+            int current=++operation; Connecting=true; startedAt=Time.unscaledTime;
             try {
+                if(NetworkManager.Singleton!=null)await Task.Yield();
+                if(current!=operation)return;
                 HotelState loaded = load ? HotelSaveStore.Load(SavePath) : null;
+                if(load && loaded==null) throw new InvalidOperationException("Сохранение не найдено.");
                 Simulation = new HotelSimulation(loaded);
                 State = Simulation.State;
                 Setup("127.0.0.1", port, pass);
@@ -73,20 +80,65 @@ namespace WorstHotel
                 RegisterMessages();
                 if(State.players.Find(p=>p.id==0)==null) Simulation.Join(0);
                 Status = "Хост · порт " + port;
+                if(!load) HotelSaveStore.StartNew(State,SavePath);
                 Save();
             } catch(Exception e) { Fail("Не удалось создать отель: " + e.Message); }
         }
 
-        public void Join(string address, ushort port, string pass)
+        public async void Join(string address, ushort port, string pass)
         {
-            if(Manager != null) return;
+            if(Manager != null || Connecting) return;
+            int current=++operation; Connecting=true; startedAt=Time.unscaledTime;
             try {
+                if(NetworkManager.Singleton!=null)await Task.Yield();
+                if(current!=operation)return;
                 if(string.IsNullOrWhiteSpace(address)) throw new ArgumentException("Укажите IP-адрес хоста.");
                 Setup(address.Trim(),port,pass);
                 if(!Manager.StartClient()) throw new InvalidOperationException("Не удалось начать подключение.");
                 RegisterMessages();
                 Status = "Подключение к " + address + "…";
             } catch(Exception e) { Fail(e.Message); }
+        }
+
+        public async void HostSteam(bool load)
+        {
+            if(Manager!=null||Connecting)return;
+            int current=++operation;Connecting=true;SteamMode=true;startedAt=Time.unscaledTime;Status="Создаём тестовое Steam-лобби (AppID 480)…";
+            try {
+                if(!HotelSteam.InitializeForTest(out string error))throw new Exception(error);
+                var lobby=await HotelSteam.CreateLobby();
+                if(current!=operation)return;
+                if(!lobby.Success)throw new Exception(lobby.Error);
+                var loaded=load?HotelSaveStore.Load(SavePath):null;
+                if(load&&loaded==null)throw new Exception("Сохранение не найдено.");
+                Simulation=new HotelSimulation(loaded);State=Simulation.State;
+                if(NetworkManager.Singleton!=null)await Task.Yield();
+                if(current!=operation)return;
+                Setup("127.0.0.1",7777,"");
+                if(!HotelSteam.ConfigureTransport(Manager,true,lobby.HostSteamId,out error))throw new Exception(error);
+                if(!Manager.StartHost())throw new Exception("Не удалось запустить Steam-хост.");
+                RegisterMessages();if(State.players.Find(p=>p.id==0)==null)Simulation.Join(0);
+                if(!HotelSteam.SetLobbyReady(true,out error))throw new Exception(error);
+                if(!load)HotelSaveStore.StartNew(State,SavePath);Save();
+                Status="STEAM TEST 480 · Лобби "+lobby.LobbyId;
+            } catch(Exception e){if(current==operation)Fail(e.Message);}
+        }
+        public async void JoinSteam(ulong lobbyId)
+        {
+            if(Manager!=null||Connecting)return;
+            int current=++operation;Connecting=true;SteamMode=true;startedAt=Time.unscaledTime;Status="Входим в тестовое Steam-лобби…";
+            try {
+                if(!HotelSteam.InitializeForTest(out string error))throw new Exception(error);
+                var lobby=await HotelSteam.JoinLobby(lobbyId);
+                if(current!=operation)return;
+                if(!lobby.Success)throw new Exception(lobby.Error);
+                if(NetworkManager.Singleton!=null)await Task.Yield();
+                if(current!=operation)return;
+                Setup("127.0.0.1",7777,"");
+                if(!HotelSteam.ConfigureTransport(Manager,false,lobby.HostSteamId,out error))throw new Exception(error);
+                if(!Manager.StartClient())throw new Exception("Не удалось подключить Steam transport.");
+                RegisterMessages();Status="STEAM TEST 480 · Лобби "+lobbyId;
+            }catch(Exception e){if(current==operation)Fail(e.Message);}
         }
 
         void RegisterMessages()
@@ -174,7 +226,7 @@ namespace WorstHotel
         }
         void Update()
         {
-            if(Connecting && Time.unscaledTime-startedAt>12) { Fail("Хост не отвечает. Проверьте IP, пароль и UDP-порт. Для интернета нужен доступный порт или VPN-сеть."); return; }
+            if(Connecting && Time.unscaledTime-startedAt>(SteamMode?25:12)) { Fail(SteamMode?"Steam-хост не отвечает. Проверьте Steam у обоих игроков.":"Хост не отвечает. Проверьте IP, пароль и UDP-порт. Для интернета нужен доступный порт или VPN-сеть."); return; }
             if(!IsHost || Simulation==null) return;
             Simulation.Tick(Mathf.Min(Time.unscaledDeltaTime,.1f));
             if(Time.unscaledTime>=broadcastAt) {
@@ -184,19 +236,22 @@ namespace WorstHotel
             }
             if(Time.unscaledTime>=saveAt) { saveAt=Time.unscaledTime+30; Save(); }
         }
-        public void Save()
+        public bool Save()
         {
-            if(!IsHost || State==null) return;
-            try { HotelSaveStore.Save(State,SavePath); LastSaved=DateTime.Now.ToString("HH:mm:ss"); }
-            catch(Exception e) { Feedback?.Invoke("Ошибка сохранения: "+e.Message); Debug.LogError(e); }
+            if(!IsHost || State==null) return false;
+            try { HotelSaveStore.Save(State,SavePath); LastSaved=DateTime.Now.ToString("HH:mm:ss"); return true; }
+            catch(Exception e) { Feedback?.Invoke("Ошибка сохранения: "+e.Message); Debug.LogError(e); return false; }
         }
-        public void Disconnect(bool save=true)
+        public bool Disconnect(bool save=true)
         {
-            if(save) Save();
+            if(save && IsHost && !Save()) return false;
+            operation++;
             if(Manager!=null) { Manager.Shutdown(); Destroy(Manager.gameObject); Manager=null; }
+            if(SteamMode)HotelSteam.LeaveLobby();SteamMode=false;
             State=null; Simulation=null; Connecting=false; poseTimes.Clear(); rates.Clear(); sequences.Clear(); sequence=0;
+            return true;
         }
-        void OnApplicationQuit() { Save(); }
+        void OnApplicationQuit() { Save(); if(Manager!=null)Manager.Shutdown(); HotelSteam.Shutdown(); }
         void OnDestroy() { if(Manager!=null) Manager.Shutdown(); }
     }
 }

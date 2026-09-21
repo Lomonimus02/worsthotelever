@@ -3,6 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace WorstHotel
 {
@@ -13,6 +17,7 @@ namespace WorstHotel
         readonly List<string> errors=new List<string>();
         string dir, role;
         HotelGame game;
+        bool walkOk;
         void Awake(){Application.logMessageReceived+=Log;}
         void Log(string message,string stack,LogType type){if(type==LogType.Exception||type==LogType.Error||type==LogType.Assert)errors.Add(message+"\n"+stack);}
         IEnumerator Start()
@@ -43,7 +48,7 @@ namespace WorstHotel
             }
             checks.Add("ROOM_DOOR_ROUTES_INSPECTED");
             game.OpenPanel("");
-            yield return new WaitForEndOfFrame();ScreenCapture.CaptureScreenshot(Path.Combine(dir,role+"-hotel.png"));
+            yield return new WaitForEndOfFrame();CaptureWorld(role+"-hotel");
             deadline=Time.realtimeSinceStartup+25;
             while(game.Session.State.players.Count<2&&Time.realtimeSinceStartup<deadline)yield return null;
             if(game.Session.State.players.Count<2){Finish(false,"Second player did not join");yield break;}
@@ -55,27 +60,103 @@ namespace WorstHotel
                 checks.Add("SAVE_LOAD_ROUNDTRIP");
                 // Change a real replicated field and verify it on the other process.
                 game.Session.State.notice="WHE_SMOKE_SNAPSHOT";
-                yield return new WaitForSecondsRealtime(15);
+                deadline=Time.realtimeSinceStartup+58;
+                while(game.Session.State.players.Count>1&&Time.realtimeSinceStartup<deadline)yield return null;
+                if(game.Session.State.players.Count>1){Finish(false,"Client did not complete/disconnect");yield break;}
+                if(game.Session.State.items.Exists(i=>i.holder>0)){Finish(false,"Disconnected client retained an item");yield break;}
+                checks.Add("DISCONNECT_RELEASES_OWNERSHIP");
+                if(game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Host did not observe completed bed work");yield break;}
+                checks.Add("HOST_SEES_CLIENT_ROOM_WORK");
+                if(!game.Session.Save()||HotelSaveStore.Load(game.Session.SavePath).rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Final cooperative change did not persist");yield break;}
+                checks.Add("COOPERATIVE_CHANGE_PERSISTED");
                 checks.Add("HOST_WORLD_STABLE");
             } else {
-                var original=game.Session.State.cash;
-                game.Session.Send(new HotelCommand("upgrade","beds"));
-                yield return new WaitForSecondsRealtime(1);
-                if(game.Session.State.cash!=original){Finish(false,"Client could buy a host-only upgrade");yield break;}
-                checks.Add("CLIENT_ADMIN_REJECTED");
                 float t=Time.realtimeSinceStartup;Vector3 start=game.Controller.transform.position;
-                while(Time.realtimeSinceStartup-t<.45f){game.Controller.Move(Vector3.right*Time.unscaledDeltaTime);yield return null;}
-                yield return new WaitForSecondsRealtime(.5f);
+                var serverStart=game.Session.State.players.Find(p=>p.id==game.Session.LocalId).position;
+                if(Keyboard.current==null){Finish(false,"No keyboard device");yield break;}
+                InputSystem.settings.backgroundBehavior=InputSettings.BackgroundBehavior.IgnoreFocus;
+                InputSystem.EnableDevice(Keyboard.current);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.D));
+                yield return new WaitForSecondsRealtime(.34f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());
+                yield return new WaitForSecondsRealtime(.8f);
                 var authoritative=game.Session.State.players.Find(p=>p.id==game.Session.LocalId);
-                if(authoritative==null||Vector3.Distance(authoritative.position,game.Controller.transform.position)>.8f){Finish(false,"Movement replication mismatch");yield break;}
+                if(authoritative==null||Vector3.Distance(authoritative.position,serverStart)<.6f||Vector3.Distance(authoritative.position,game.Controller.transform.position)>.35f){Finish(false,"Movement replication mismatch or no authoritative movement");yield break;}
                 checks.Add("CLIENT_MOVEMENT_REPLICATED");
+                checks.Add("INPUT_SYSTEM_WASD_TO_CONTROLLER_VERIFIED");
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Tab));yield return new WaitForSecondsRealtime(.12f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
+                if(game.Panel!="tasks"){Finish(false,"TAB did not open tasks");yield break;}
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Escape));yield return new WaitForSecondsRealtime(.12f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
+                if(game.Panel!=""){Finish(false,"ESC did not close tasks");yield break;}
+                checks.Add("TAB_AND_ESCAPE_UI_INPUT_VERIFIED");
+                yield return Walk(new[]{new Vector3(-1.5f,0,-3.3f),new Vector3(-2.6f,0,-3.3f),new Vector3(-2.6f,0,-2.85f)});
+                if(!walkOk)yield break;
+                game.LookAtForTest(HotelLayout.Target("towels"));yield return new WaitForSecondsRealtime(.15f);
+                if(game.FocusId!="towels"){Finish(false,"Cannot focus towel stock: "+game.FocusId);yield break;}
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.E));yield return new WaitForSecondsRealtime(.15f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());
+                yield return new WaitForSecondsRealtime(.7f);
+                if(game.Held?.kind!="towel"){Finish(false,"Client regular command failed to acquire towel");yield break;}
+                checks.Add("CLIENT_ITEM_COMMAND_REPLICATED");
+                yield return Walk(new[]{new Vector3(-2.6f,0,-3.3f),new Vector3(-1.5f,0,-3.3f),new Vector3(3.1f,0,-2.9f)});
+                if(!walkOk)yield break;
+                string response=null;game.Session.Feedback+=message=>response=message;
+                int original=game.Session.State.cash;
+                game.Session.Send(new HotelCommand("upgrade","beds"));
+                yield return new WaitForSecondsRealtime(.8f);
+                if(response!="Это действие подтверждает хозяин отеля."||game.Session.State.cash!=original){Finish(false,"Expected explicit host-only rejection near board, got: "+response);yield break;}
+                checks.Add("CLIENT_ADMIN_REJECTED_AT_VALID_DISTANCE");
                 deadline=Time.realtimeSinceStartup+12;
                 while(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"&&Time.realtimeSinceStartup<deadline)yield return null;
                 if(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"){Finish(false,"Host snapshot was not received");yield break;}
                 checks.Add("HOST_SNAPSHOT_RECEIVED");
-                yield return new WaitForSecondsRealtime(5);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Q));yield return new WaitForSecondsRealtime(.15f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.5f);
+                if(game.Held!=null){Finish(false,"Q did not release towel");yield break;}
+                checks.Add("Q_DROP_REPLICATED");
+                yield return Walk(new[]{new Vector3(1.85f,0,.8f),new Vector3(0,0,.8f),new Vector3(0,0,5.5f),new Vector3(4.4f,0,5.5f)});
+                if(!walkOk)yield break;
+                game.LookAtForTest(HotelLayout.RoomTarget("bed",102));yield return new WaitForSecondsRealtime(.2f);
+                if(game.FocusId!="bed_102"){Finish(false,"Cannot focus bed through normal interaction ray: "+game.FocusId);yield break;}
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.E));yield return new WaitForSecondsRealtime(2.8f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.5f);
+                if(game.Held?.kind!="dirtylinen"||game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Held E did not complete authoritative bed work");yield break;}
+                checks.Add("HELD_E_BED_WORK_REPLICATED");CaptureWorld("client-room-102");
             }
             Finish(errors.Count==0,errors.Count==0?"All smoke checks passed":"Runtime errors");
+        }
+        IEnumerator Walk(Vector3[] points)
+        {
+            walkOk=false;
+            foreach(Vector3 point in points){
+                float until=Time.realtimeSinceStartup+10;
+                while(Time.realtimeSinceStartup<until){
+                    Vector3 delta=point-game.Controller.transform.position;delta.y=0;
+                    if(delta.magnitude<.16f)break;
+                    game.Controller.Move(delta.normalized*2.2f*Time.unscaledDeltaTime);
+                    yield return null;
+                }
+                Vector3 remaining=point-game.Controller.transform.position;remaining.y=0;
+                if(remaining.magnitude>.35f){Finish(false,"Walk blocked en route to "+point+" at "+game.Controller.transform.position);yield break;}
+            }
+            yield return new WaitForSecondsRealtime(.4f);walkOk=true;
+        }
+        void CaptureWorld(string name)
+        {
+            // Hidden windows have a black backbuffer; explicitly render the real URP camera.
+            var target=new RenderTexture(1280,800,24,RenderTextureFormat.ARGB32);
+            var previous=RenderTexture.active;Texture2D texture=null;
+            try {
+                target.Create();RenderPipeline.SubmitRenderRequest(game.View,new UniversalRenderPipeline.SingleCameraRequest{destination=target});
+                RenderTexture.active=target;texture=new Texture2D(1280,800,TextureFormat.RGB24,false);
+                texture.ReadPixels(new Rect(0,0,1280,800),0,0);texture.Apply();
+                File.WriteAllBytes(Path.Combine(dir,name+".png"),texture.EncodeToPNG());
+                var pixels=texture.GetPixels32();int lit=0;
+                for(int i=0;i<pixels.Length;i+=64)if(pixels[i].r+pixels[i].g+pixels[i].b>45)lit++;
+                if(lit<100)errors.Add("Rendered camera image is blank");else checks.Add("URP_CAMERA_NONBLANK "+lit);
+            }finally{RenderTexture.active=previous;target.Release();Destroy(target);if(texture!=null)Destroy(texture);}
         }
         void Finish(bool success,string reason)
         {

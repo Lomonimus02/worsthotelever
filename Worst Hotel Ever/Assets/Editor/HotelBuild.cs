@@ -50,6 +50,14 @@ namespace WorstHotel.BuildTools
             File.WriteAllText(Path.Combine(Root,"TestResults","build-summary.txt"),result);
             Debug.Log("WHE_BUILD "+result);
             if(report.summary.result!=BuildResult.Succeeded)throw new Exception("Windows build failed");
+            string licenses=Path.Combine(Application.dataPath,"Steam","Licenses");
+            if(Directory.Exists(licenses))foreach(string file in Directory.GetFiles(licenses,"*",SearchOption.AllDirectories)) {
+                if(file.EndsWith(".meta"))continue;
+                string target=Path.Combine(folder,"ThirdPartyNotices",Path.GetRelativePath(licenses,file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target));File.Copy(file,target,true);
+            }
+            string readme=Path.Combine(Root,"README_PRE_MVP.md");
+            if(File.Exists(readme))File.Copy(readme,Path.Combine(folder,"READ_ME_RU.md"),true);
         }
     }
 }

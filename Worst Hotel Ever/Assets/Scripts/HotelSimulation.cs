@@ -707,9 +707,13 @@ namespace WorstHotel
             if (State.ledger.Count > 256) State.ledger.RemoveAt(0);
         }
 
-        public List<string> Tasks()
+        public List<string> Tasks() => BuildTasks(State);
+
+        // Read-only projection shared by host and clients; never construct a simulator for UI.
+        public static List<string> BuildTasks(HotelState State)
         {
             var tasks = new List<string>();
+            if(State==null)return tasks;
             foreach (GuestState guest in State.guests)
             {
                 if (guest.stage == "queue") tasks.Add("Заселить: " + guest.name + " (стойка регистрации)");
@@ -734,7 +738,7 @@ namespace WorstHotel
             if (State.items.Exists(i => !i.consumed && i.kind == "trashbag")) tasks.Add("Отнести мешки мусора в контейнер у склада");
             if (State.phase == "preparation") tasks.Add("Открыть отель на стойке, когда команда готова");
             if (State.phase == "closing") tasks.Add("Подвести итоги смены на стойке; незавершённая уборка сохранится");
-            if (State.phase == "summary") tasks.Add("Купить улучшение на доске или начать подготовку следующего дня на стойке");
+            if (State.phase == "summary") tasks.Add("Начать подготовку следующего дня на стойке; затем доступны улучшения на доске");
             return tasks;
         }
 
