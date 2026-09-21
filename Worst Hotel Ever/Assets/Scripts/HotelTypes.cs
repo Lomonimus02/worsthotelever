@@ -44,7 +44,7 @@ namespace WorstHotel
     }
     [Serializable] public class HotelCommand
     {
-        public string action, target; public int number; public Vector3 position; public float yaw, pitch;
+        public string action, target; public int number; public long sequence; public Vector3 position; public float yaw, pitch;
         public HotelCommand() { }
         public HotelCommand(string action, string target = "", int number = 0) { this.action = action; this.target = target; this.number = number; }
     }
