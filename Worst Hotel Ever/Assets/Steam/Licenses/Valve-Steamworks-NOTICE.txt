@@ -1,0 +1,22 @@
+steam_api64.dll is Valve Corporation's proprietary Steamworks SDK redistributable.
+It is NOT covered by the Facepunch or Unity MIT licenses.
+
+Source: official Facepunch.Steamworks 2.5.2 release, unmodified
+Release/Unity/redistributable_bin/win64/steam_api64.dll.
+The release does not include a separate Valve agreement text; no substitute
+license or additional grant of rights is asserted by this project.
+
+Commercial Steam distribution is governed by the developer's applicable Valve
+Steamworks / Steam Distribution agreements and a real product AppID. The MIT
+wrapper and MIT adapter are compatible with proprietary application code; their
+licenses do not replace the Valve agreements for this native binary/service.
+
+Official documentation:
+https://partner.steamgames.com/doc/sdk
+https://partner.steamgames.com/doc/sdk/api
+https://partner.steamgames.com/doc/sdk/uploading/distributing_opensource
+
+This pre-MVP does not register a Steamworks account, obtain an AppID, accept
+agreements, publish a product, or assert clearance for commercial distribution.
+AppID 480 is Spacewar, used only after an explicit test opt-in, never as this
+game's product identity. The IP transport remains independent of Steam.

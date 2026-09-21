@@ -1,0 +1,80 @@
+// Compiled by Verify-Steam.ps1, never imported as a Unity gameplay script.
+using System;
+using System.Linq;
+using WorstHotel;
+
+static class OfflineChecks
+{
+    static int passed;
+    static void Check(bool value, string name)
+    {
+        if (!value) throw new Exception("FAILED: " + name);
+        Console.WriteLine("PASS: " + name); passed++;
+    }
+    static bool Decode(byte[] data, ref bool seen, ref uint sequence, out ArraySegment<byte> payload)
+        => SteamPacket.TryDecode(data, data.Length, ref seen, ref sequence, out payload);
+    static int Main()
+    {
+        try
+        {
+            string appBefore = Environment.GetEnvironmentVariable("SteamAppId");
+            string gameBefore = Environment.GetEnvironmentVariable("SteamGameId");
+            Check(!HotelSteam.IsAvailable && HotelSteam.AppId == 0, "Steam has no startup side effects");
+            Check(!HotelSteam.Initialize(out var error) && error.Length > 0, "No default AppID / IP remains available");
+            Check(!HotelSteam.Initialize(480, false, out error), "480 requires explicit test opt-in");
+            Check(Environment.GetEnvironmentVariable("SteamAppId") == appBefore &&
+                Environment.GetEnvironmentVariable("SteamGameId") == gameBefore, "Rejected Init does not alter Steam environment");
+            Check(!HotelSteam.CreateLobby().GetAwaiter().GetResult().Success, "Lobby create rejects uninitialized Steam");
+            Check(!HotelSteam.JoinLobby(0).GetAwaiter().GetResult().Success, "Invalid lobby ID rejected");
+            Check(!HotelSteam.JoinLobby(123).GetAwaiter().GetResult().Success, "Lobby join rejects uninitialized Steam");
+            Check(!HotelSteam.ConfigureTransport(null, true, 0, out error), "Transport setup rejects uninitialized Steam");
+            Check(!HotelSteam.SetLobbyReady(true, out error), "Uninitialized lobby cannot be published");
+            HotelSteam.LeaveLobby(); HotelSteam.Shutdown(); HotelSteam.Shutdown();
+            Check(!HotelSteam.IsAvailable && HotelSteam.LobbyId == 0, "No-init leave / repeated shutdown are safe");
+
+            bool seen = false; uint sequence = 0;
+            var slice = SteamPacket.Encode(new ArraySegment<byte>(new byte[] { 99, 2, 3, 98 }, 1, 2), SteamPacket.Reliable, 0);
+            Check(Decode(slice, ref seen, ref sequence, out var result) && result.SequenceEqual(new byte[] { 2, 3 }), "NGO payload offset is preserved");
+            var random = new Random(234);
+            foreach (int length in new[] { 0, 1, 1296, 4097, 140000, SteamPacket.MaxPayloadBytes })
+            {
+                var original = new byte[length]; random.NextBytes(original);
+                var packet = SteamPacket.Encode(new ArraySegment<byte>(original), SteamPacket.Reliable, 0);
+                Check(Decode(packet, ref seen, ref sequence, out result) && result.SequenceEqual(original), "Reliable payload roundtrip " + length);
+            }
+            bool oversizedRejected = false;
+            try { SteamPacket.Encode(new ArraySegment<byte>(new byte[SteamPacket.MaxPayloadBytes + 1]), SteamPacket.Reliable, 0); }
+            catch (ArgumentException) { oversizedRejected = true; }
+            Check(oversizedRejected, "Steam's 512 KiB message limit enforced including header");
+
+            var body = new ArraySegment<byte>(new byte[] { 7 });
+            Func<uint, byte[]> sequenced = n => SteamPacket.Encode(body, SteamPacket.UnreliableSequenced, n);
+            seen = false; sequence = 0;
+            Check(Decode(sequenced(100), ref seen, ref sequence, out result), "First unreliable sequence accepted");
+            Check(!Decode(sequenced(100), ref seen, ref sequence, out result), "Duplicate unreliable packet dropped");
+            Check(!Decode(sequenced(99), ref seen, ref sequence, out result), "Reordered stale packet dropped");
+            Check(Decode(sequenced(102), ref seen, ref sequence, out result), "Packet loss does not stall sequenced stream");
+            Check(Decode(slice, ref seen, ref sequence, out result) && sequence == 102, "Reliable traffic does not alter unreliable sequencing");
+            seen = true; sequence = uint.MaxValue;
+            Check(Decode(sequenced(0), ref seen, ref sequence, out result), "Sequence wraparound accepted");
+            Check(!Decode(sequenced(uint.MaxValue), ref seen, ref sequence, out result), "Pre-wrap stale packet dropped");
+            var unordered = SteamPacket.Encode(body, SteamPacket.Unreliable, 0);
+            Check(Decode(unordered, ref seen, ref sequence, out result) && Decode(unordered, ref seen, ref sequence, out result), "Unreliable delivery does not promise deduplication");
+
+            byte[] corrupt = (byte[])slice.Clone(); corrupt[2] = 255;
+            Check(!Decode(corrupt, ref seen, ref sequence, out result), "Unknown wire version rejected");
+            Check(!SteamPacket.TryDecode(slice, -1, ref seen, ref sequence, out result) &&
+                !SteamPacket.TryDecode(slice, slice.Length + 1, ref seen, ref sequence, out result) &&
+                !SteamPacket.TryDecode(null, 8, ref seen, ref sequence, out result), "Malformed lengths / null rejected");
+            for (int i = 0; i < 10000; i++)
+            {
+                var bytes = new byte[random.Next(0, 80)]; random.NextBytes(bytes);
+                SteamPacket.TryDecode(bytes, random.Next(-5, 100), ref seen, ref sequence, out result);
+            }
+            Check(true, "10,000 random truncated/corrupt packets do not throw");
+            Console.WriteLine("TOTAL: " + passed + " offline checks passed; NO Steam initialization or online test performed.");
+            return 0;
+        }
+        catch (Exception e) { Console.Error.WriteLine(e); return 1; }
+    }
+}
