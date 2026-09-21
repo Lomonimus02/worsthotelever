@@ -23,6 +23,7 @@ namespace WorstHotel
         float yaw, pitch, vertical, nextPose, nextHeartbeat, toastUntil, stepAt, cameraBob, fpsSmooth=60;
         AudioSource effects; AudioClip tick, step, arrival;
         HotelState preview;
+        int guestCount;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
@@ -65,6 +66,16 @@ namespace WorstHotel
             View.transform.SetParent(player.transform,false); View.transform.localPosition=Vector3.up*1.65f;
             handAnchor=new GameObject("Carry anchor").transform; handAnchor.SetParent(View.transform,false);
             handAnchor.localPosition=new Vector3(.3f,-.43f,.66f);
+            // Small stylized sleeves stay below the reticle; no full-body camera coupling.
+            foreach(float side in new[]{-1f,1f}) {
+                var sleeve=GameObject.CreatePrimitive(PrimitiveType.Capsule);sleeve.name="Employee sleeve";
+                sleeve.transform.SetParent(handAnchor,false);sleeve.transform.localPosition=new Vector3(side*.27f,-.14f,-.2f);
+                sleeve.transform.localRotation=Quaternion.Euler(66,side*12,0);sleeve.transform.localScale=new Vector3(.13f,.22f,.13f);
+                Destroy(sleeve.GetComponent<Collider>());sleeve.layer=2;
+                var shader=Resources.Load<Shader>("Hotel/HotelSurface");
+                if(shader!=null){var material=new Material(shader);material.SetColor("_BaseColor",new Color(.42f,.17f,.14f));sleeve.GetComponent<Renderer>().sharedMaterial=material;}
+                sleeve.GetComponent<Renderer>().shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
             yaw=LocalPlayer?.yaw??0; pitch=0; nextPose=0;
             SetCursor();
         }
@@ -85,6 +96,7 @@ namespace WorstHotel
             }
             if(player==null) CreatePlayer();
             World.Apply(Session.State,Session.LocalId);
+            if(Session.State.guests.Count>guestCount){guestCount=Session.State.guests.Count;Sound(arrival);}
             if(oldNotice!=Session.State.notice) { oldNotice=Session.State.notice; Notify(oldNotice); }
             if(InputActive && keyboard!=null) {
                 Look(); Move(); Focus();
@@ -185,7 +197,11 @@ namespace WorstHotel
         }
         public void OpenPanel(string panel) { StopWork(); Panel=panel; SetCursor(); }
         public void SetCursor() { Cursor.lockState=InputActive?CursorLockMode.Locked:CursorLockMode.None; Cursor.visible=!InputActive; }
-        public void Notify(string text) { if(string.IsNullOrEmpty(text))return; Toast=text; toastUntil=Time.unscaledTime+6; }
+        public void Notify(string text) {
+            if(string.IsNullOrEmpty(text))return;
+            if(text=="Сначала начните работу."){StopWork();return;}
+            Toast=text; toastUntil=Time.unscaledTime+6;
+        }
         public void Leave() { StopWork(); Session.Disconnect(); OpenPanel("menu"); }
         public void StoreSettings() {
             PlayerPrefs.SetFloat("sensitivity",Sensitivity);PlayerPrefs.SetFloat("fov",Fov);PlayerPrefs.SetFloat("volume",Volume);

@@ -12,6 +12,7 @@ namespace WorstHotel
         GUIStyle small,normal,bold,title,huge,button;
         readonly Color ink=new Color(.095f,.135f,.14f), paper=new Color(.96f,.93f,.85f), muted=new Color(.62f,.69f,.65f), red=new Color(.68f,.24f,.22f), gold=new Color(.9f,.68f,.36f), green=new Color(.35f,.71f,.53f);
         string address="127.0.0.1",port="7777",password="";
+        bool hostLoad;
         Vector2 scroll; string lastPhase="";
         void Init()
         {
@@ -40,6 +41,11 @@ namespace WorstHotel
                 else if(Game.Panel=="settings") Settings();
                 else if(Game.Panel=="pause") Pause();
                 else Window();
+            }
+            if(Game.Session.Connecting&&!Game.Playing) {
+                Box(new Rect(430,326,580,245),ink);Text(new Rect(459,352,520,60),"Подключаемся к отелю…",title);
+                Text(new Rect(459,424,520,50),Game.Session.Status,normal);
+                if(Button(new Rect(459,498,520,47),"Отменить")){Game.Session.Disconnect(false);Game.OpenPanel("menu");}
             }
             if(Game.Toast!=""&&Game.Playing) {
                 Box(new Rect(370,115,700,60),new Color(.07f,.12f,.13f,.94f));Text(new Rect(389,126,662,45),Game.Toast,normal);
@@ -78,14 +84,20 @@ namespace WorstHotel
                 if(Button(new Rect(345,710,165,53),"Назад")){Game.Session.Disconnect(false);Game.Panel="menu";}
                 Text(new Rect(50,775,460,55),"Локальная сеть / VPN-сеть / доступный IP.\nДля прямого интернета хосту нужен UDP-порт.",small,muted);
             } else if(Game.Panel=="new") {
-                Text(new Rect(50,489,460,85),"Начать новый отель?\nТекущий слот будет заменён с резервной копией.",normal);
-                if(Button(new Rect(50,600,460,57),"Да, начать новую историю",true,true)){Game.Session.Host(false,7777,"");Game.OpenPanel("");}
-                if(Button(new Rect(50,674,460,52),"Вернуться"))Game.Panel="menu";
+                Text(new Rect(50,480,460,68),hostLoad?"Продолжить сохранённый отель":"Новая история. Старый отель будет сохранён в архиве.",normal);
+                Text(new Rect(50,559,305,24),"Пароль комнаты (необязательно)",small);
+                Text(new Rect(370,559,140,24),"UDP-порт",small);
+                password=GUI.PasswordField(new Rect(50,590,300,45),password,'●',32);port=GUI.TextField(new Rect(370,590,140,45),port,5);
+                if(Button(new Rect(50,658,460,57),"Открыть отель для друзей",true,true)) {
+                    if(!ushort.TryParse(port,out ushort value)||value==0)Game.Session.Status="Неверный порт.";
+                    else{Game.Session.Disconnect(false);Game.Session.Host(hostLoad,value,password);Game.OpenPanel("");}
+                }
+                if(Button(new Rect(50,732,460,48),"Вернуться"))Game.Panel="menu";
             } else {
                 bool saved=System.IO.File.Exists(Game.Session.SavePath);
-                if(Button(new Rect(50,493,460,58),"Продолжить отель",saved,true)) {Game.Session.Disconnect(false);Game.Session.Host(true,7777,"");Game.OpenPanel("");}
+                if(Button(new Rect(50,493,460,58),"Продолжить отель",saved,true)) {hostLoad=true;Game.Panel="new";}
                 if(Button(new Rect(50,564,460,58),"Создать новый отель")) {
-                    if(saved)Game.Panel="new";else{Game.Session.Disconnect(false);Game.Session.Host(false,7777,"");Game.OpenPanel("");}
+                    hostLoad=false;Game.Panel="new";
                 }
                 if(Button(new Rect(50,635,460,58),"Присоединиться к другу"))Game.Panel="connect";
                 if(Button(new Rect(50,706,224,49),"Настройки"))Game.Panel="settings";
@@ -225,7 +237,8 @@ namespace WorstHotel
         void Upgrade(float x,float y,string titleText,string sub,string id,bool owned)
         {
             Text(new Rect(x,y,475,30),titleText,bold);Text(new Rect(x,y+33,475,30),sub,small,muted);
-            if(Button(new Rect(x,y+64,470,36),owned?"Уже куплено":"Купить",!owned&&Game.Session.IsHost&&S.phase=="preparation"))Send("upgrade",id);
+            int price=id=="toolbox"?HotelSimulation.ToolboxPrice:id=="beds"?HotelSimulation.BedsPrice:HotelSimulation.CartPrice;
+            if(Button(new Rect(x,y+64,470,36),owned?"Уже куплено":"Купить за "+price+" ₽",!owned&&Game.Session.IsHost&&S.phase=="preparation"&&S.cash>=price))Send("upgrade",id);
         }
         void Summary()
         {

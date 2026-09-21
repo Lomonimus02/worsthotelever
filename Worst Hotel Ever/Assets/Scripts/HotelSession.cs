@@ -28,7 +28,9 @@ namespace WorstHotel
         readonly Dictionary<ulong, Queue<float>> rates = new Dictionary<ulong, Queue<float>>();
         readonly Dictionary<ulong, long> sequences = new Dictionary<ulong, long>();
         long sequence;
-        public string SavePath => System.IO.Path.Combine(Application.persistentDataPath, "hotel-slot-1.json");
+        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0
+            ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","smoke-save-"+System.Diagnostics.Process.GetCurrentProcess().Id+".json"))
+            : System.IO.Path.Combine(Application.persistentDataPath, "hotel-slot-1.json");
 
         void Setup(string address, ushort port, string pass)
         {
@@ -122,7 +124,7 @@ namespace WorstHotel
         void OnConnected(ulong id)
         {
             if(IsHost) { Simulation.Join(id); poseTimes[id]=Time.unscaledTime; broadcastAt=0; }
-            if(id==LocalId) Connecting=false;
+            if(id==LocalId && IsHost) Connecting=false;
             Debug.Log("WHE_CONNECTED id=" + id + " host=" + IsHost);
         }
         void OnDisconnected(ulong id)
