@@ -1,0 +1,14 @@
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Ll]ogs/
+**/UserSettings/
+**/.vs/
+**/*.csproj
+**/*.sln
+**/*.slnx
+Builds/
+TestResults/
+.DS_Store
+*.tmp
+*.log
