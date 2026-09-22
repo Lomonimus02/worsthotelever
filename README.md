@@ -9,6 +9,7 @@
 - [План и критерии MVP](docs/MVP_EXECUTION_PLAN.md)
 - [Контракт компонентов MVP](docs/MVP_COMPONENT_CONTRACT.md)
 - [Сценарий парного интернет-теста](docs/MVP_TWO_PC_PLAYTEST_RU.md)
+- [Локальная проверка кандидата MVP 1.0.0-rc1](docs/reports/release-mvp-rc1.md)
 - [Исторический выпуск pre-MVP 0.4](docs/reports/release-0.4.md)
 - [Полный мастер-план](WORST_HOTEL_EVER_MASTER_PLAN.md)
 - [Отдельные направления разработки](docs/WORK_STREAMS.md)
