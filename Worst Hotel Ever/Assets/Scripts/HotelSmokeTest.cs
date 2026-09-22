@@ -87,6 +87,11 @@ namespace WorstHotel
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Tab));yield return new WaitForSecondsRealtime(.12f);
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
                 if(game.Panel!="tasks"){Finish(false,"TAB did not open tasks");yield break;}
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Tab));yield return new WaitForSecondsRealtime(.12f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
+                if(game.Panel!=""){Finish(false,"Second TAB did not close tasks");yield break;}
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Tab));yield return new WaitForSecondsRealtime(.12f);
+                InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.Escape));yield return new WaitForSecondsRealtime(.12f);
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.12f);
                 if(game.Panel!=""){Finish(false,"ESC did not close tasks");yield break;}
@@ -100,6 +105,9 @@ namespace WorstHotel
                 yield return new WaitForSecondsRealtime(.7f);
                 if(game.Held?.kind!="towel"){Finish(false,"Client regular command failed to acquire towel");yield break;}
                 checks.Add("CLIENT_ITEM_COMMAND_REPLICATED");
+                var hint=HotelOnboarding.GetHint(game.Session.State,game.Session.LocalId);
+                if(hint==null||hint.targetId!="towel_103"){Finish(false,"Client onboarding did not follow held towel to missing stock");yield break;}
+                checks.Add("CLIENT_CONTEXTUAL_HINT_FROM_REPLICATED_WORLD");
                 yield return Walk(new[]{new Vector3(-2.6f,0,-3.3f),new Vector3(-1.5f,0,-3.3f),new Vector3(3.1f,0,-2.9f)});
                 if(!walkOk)yield break;
                 string response=null;game.Session.Feedback+=message=>response=message;

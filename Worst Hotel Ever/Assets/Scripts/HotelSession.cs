@@ -12,12 +12,15 @@ namespace WorstHotel
     // One authority and one simulation. Clients send intentions, never modified hotel data.
     public sealed class HotelSession : MonoBehaviour
     {
-        public const string Protocol = "WHE-premvp-1";
+        public const string Protocol = "WHE-premvp-2";
         public HotelSimulation Simulation { get; private set; }
         public HotelState State { get; private set; }
         public NetworkManager Manager { get; private set; }
         public bool IsHost => Manager != null && Manager.IsHost;
-        public bool Connected => Manager != null && Manager.IsConnectedClient && State != null;
+        public bool Connected => !NeedsRecovery && Manager != null && Manager.IsConnectedClient && State != null;
+        public bool OwnsHotel => ownsHotel && State != null;
+        public bool NeedsRecovery { get; private set; }
+        public string SaveError { get; private set; } = "";
         public bool Connecting { get; private set; }
         public ulong LocalId => Manager != null ? Manager.LocalClientId : 0;
         public string Status = "";
@@ -31,7 +34,9 @@ namespace WorstHotel
         readonly Dictionary<ulong, Queue<float>> rates = new Dictionary<ulong, Queue<float>>();
         readonly Dictionary<ulong, long> sequences = new Dictionary<ulong, long>();
         long sequence;
-        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0
+        bool ownsHotel;
+        readonly HashSet<ulong> approvedClients = new HashSet<ulong>();
+        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0 || Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0
             ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","smoke-save-"+System.Diagnostics.Process.GetCurrentProcess().Id+".json"))
             : System.IO.Path.Combine(Application.persistentDataPath, "hotel-slot-1.json");
 
@@ -52,21 +57,27 @@ namespace WorstHotel
             };
             Manager.ConnectionApprovalCallback = (request, response) => {
                 bool version = Encoding.UTF8.GetString(request.Payload) == Protocol + "|" + password;
-                response.Approved = version && Manager.ConnectedClientsIds.Count < 2;
+                // NGO applies approvals in a later update. Reserve the slot in this callback,
+                // otherwise two requests in one incoming batch both see the same free place.
+                var occupied = new HashSet<ulong>(Manager.ConnectedClientsIds);
+                occupied.UnionWith(approvedClients);
+                response.Approved = version && (occupied.Contains(request.ClientNetworkId) || occupied.Count < 2);
+                if(response.Approved)approvedClients.Add(request.ClientNetworkId);
                 response.CreatePlayerObject = false;
                 response.Pending = false;
                 response.Reason = version ? "В отеле уже два сотрудника." : "Другая версия игры или неверный пароль комнаты.";
             };
             Manager.OnClientConnectedCallback += OnConnected;
             Manager.OnClientDisconnectCallback += OnDisconnected;
-            Manager.OnTransportFailure += () => { Status = "Ошибка сети. Проверьте адрес и доступность порта."; Connecting = false; };
+            Manager.OnTransportFailure += OnTransportFailure;
+            Manager.OnPreShutdown += OnPreShutdown;
             startedAt = Time.unscaledTime;
             Connecting = true;
         }
 
         public async void Host(bool load, ushort port, string pass)
         {
-            if(Manager != null || Connecting) return;
+            if(Manager != null || Connecting || OwnsHotel) return;
             int current=++operation; Connecting=true; startedAt=Time.unscaledTime;
             try {
                 if(NetworkManager.Singleton!=null)await Task.Yield();
@@ -81,13 +92,14 @@ namespace WorstHotel
                 if(State.players.Find(p=>p.id==0)==null) Simulation.Join(0);
                 Status = "Хост · порт " + port;
                 if(!load) HotelSaveStore.StartNew(State,SavePath);
+                ownsHotel=true;
                 Save();
             } catch(Exception e) { Fail("Не удалось создать отель: " + e.Message); }
         }
 
         public async void Join(string address, ushort port, string pass)
         {
-            if(Manager != null || Connecting) return;
+            if(Manager != null || Connecting || OwnsHotel) return;
             int current=++operation; Connecting=true; startedAt=Time.unscaledTime;
             try {
                 if(NetworkManager.Singleton!=null)await Task.Yield();
@@ -102,7 +114,7 @@ namespace WorstHotel
 
         public async void HostSteam(bool load)
         {
-            if(Manager!=null||Connecting)return;
+            if(Manager!=null||Connecting||OwnsHotel)return;
             int current=++operation;Connecting=true;SteamMode=true;startedAt=Time.unscaledTime;Status="Создаём тестовое Steam-лобби (AppID 480)…";
             try {
                 if(!HotelSteam.InitializeForTest(out string error))throw new Exception(error);
@@ -119,13 +131,13 @@ namespace WorstHotel
                 if(!Manager.StartHost())throw new Exception("Не удалось запустить Steam-хост.");
                 RegisterMessages();if(State.players.Find(p=>p.id==0)==null)Simulation.Join(0);
                 if(!HotelSteam.SetLobbyReady(true,out error))throw new Exception(error);
-                if(!load)HotelSaveStore.StartNew(State,SavePath);Save();
+                if(!load)HotelSaveStore.StartNew(State,SavePath);ownsHotel=true;Save();
                 Status="STEAM TEST 480 · Лобби "+lobby.LobbyId;
             } catch(Exception e){if(current==operation)Fail(e.Message);}
         }
         public async void JoinSteam(ulong lobbyId)
         {
-            if(Manager!=null||Connecting)return;
+            if(Manager!=null||Connecting||OwnsHotel)return;
             int current=++operation;Connecting=true;SteamMode=true;startedAt=Time.unscaledTime;Status="Входим в тестовое Steam-лобби…";
             try {
                 if(!HotelSteam.InitializeForTest(out string error))throw new Exception(error);
@@ -175,19 +187,47 @@ namespace WorstHotel
 
         void OnConnected(ulong id)
         {
-            if(IsHost) { Simulation.Join(id); poseTimes[id]=Time.unscaledTime; broadcastAt=0; }
+            approvedClients.Remove(id);
+            if(IsHost) {
+                Simulation.Join(id);
+                if(State.players.Find(p=>p.id==id)==null) { if(id!=0)Manager.DisconnectClient(id,"В отеле уже два сотрудника."); return; }
+                poseTimes[id]=Time.unscaledTime; broadcastAt=0;
+            }
             if(id==LocalId && IsHost) Connecting=false;
             Debug.Log("WHE_CONNECTED id=" + id + " host=" + IsHost);
         }
         void OnDisconnected(ulong id)
         {
+            approvedClients.Remove(id);sequences.Remove(id);
             if(IsHost && id!=0) { Simulation.Leave(id); poseTimes.Remove(id); rates.Remove(id); return; }
+            if(OwnsHotel)return; // NGO can reset IsHost before callbacks; retain our save obligation.
             if(!IsHost) {
                 Status = string.IsNullOrEmpty(Manager?.DisconnectReason) ? "Соединение закрыто. Хост сохраняет отель." : Manager.DisconnectReason;
                 Connecting=false; State=null;
             }
         }
+        void OnTransportFailure()
+        {
+            Status="Ошибка сети. Сессия остановлена; прогресс отеля будет сохранён.";
+            Connecting=false;
+            if(OwnsHotel)NeedsRecovery=true;
+        }
+        void OnPreShutdown()
+        {
+            if(!OwnsHotel)return;
+            // This hook runs before NGO discards host roles. Ownership stays with the session
+            // even if disk I/O fails, so the recovery screen can retry after network shutdown.
+            NeedsRecovery=true;Connecting=false;
+            bool saved=Save();
+            Status=saved?"Сеть отключена. Последний прогресс сохранён. Можно открыть отель снова.":"Сеть отключена. Не удалось сохранить отель — повторите запись перед выходом.";
+        }
         void Fail(string reason) { Disconnect(false); Status=reason; Feedback?.Invoke(reason); }
+
+        public bool ResetSteam()
+        {
+            if(Manager!=null||Connecting||OwnsHotel){Feedback?.Invoke("Сначала завершите текущую сессию.");return false;}
+            HotelSteam.Shutdown();Status="Steam-подключение сброшено. Можно повторить вход в лобби.";return true;
+        }
 
         string Apply(ulong id,HotelCommand cmd)
         {
@@ -227,7 +267,7 @@ namespace WorstHotel
         void Update()
         {
             if(Connecting && Time.unscaledTime-startedAt>(SteamMode?25:12)) { Fail(SteamMode?"Steam-хост не отвечает. Проверьте Steam у обоих игроков.":"Хост не отвечает. Проверьте IP, пароль и UDP-порт. Для интернета нужен доступный порт или VPN-сеть."); return; }
-            if(!IsHost || Simulation==null) return;
+            if(!IsHost || Simulation==null || NeedsRecovery || Manager.ShutdownInProgress || !Manager.IsListening) return;
             Simulation.Tick(Mathf.Min(Time.unscaledDeltaTime,.1f));
             if(Time.unscaledTime>=broadcastAt) {
                 broadcastAt=Time.unscaledTime+.1f;
@@ -238,17 +278,23 @@ namespace WorstHotel
         }
         public bool Save()
         {
-            if(!IsHost || State==null) return false;
-            try { HotelSaveStore.Save(State,SavePath); LastSaved=DateTime.Now.ToString("HH:mm:ss"); return true; }
-            catch(Exception e) { Feedback?.Invoke("Ошибка сохранения: "+e.Message); Debug.LogError(e); return false; }
+            if(!OwnsHotel) return false;
+            try { HotelSaveStore.Save(State,SavePath); LastSaved=DateTime.Now.ToString("HH:mm:ss"); SaveError=""; return true; }
+            catch(Exception e) { SaveError=e.Message; Feedback?.Invoke("Ошибка сохранения: "+e.Message); Debug.LogError(e); return false; }
         }
         public bool Disconnect(bool save=true)
         {
-            if(save && IsHost && !Save()) return false;
+            // Public cancel/new-session calls cannot discard an owned hotel, even with save=false.
+            if(OwnsHotel && !Save()) return false;
             operation++;
-            if(Manager!=null) { Manager.Shutdown(); Destroy(Manager.gameObject); Manager=null; }
+            if(Manager!=null) {
+                Manager.OnPreShutdown-=OnPreShutdown;Manager.OnTransportFailure-=OnTransportFailure;
+                Manager.OnClientConnectedCallback-=OnConnected;Manager.OnClientDisconnectCallback-=OnDisconnected;
+                Manager.Shutdown(); Destroy(Manager.gameObject); Manager=null;
+            }
             if(SteamMode)HotelSteam.LeaveLobby();SteamMode=false;
-            State=null; Simulation=null; Connecting=false; poseTimes.Clear(); rates.Clear(); sequences.Clear(); sequence=0;
+            State=null; Simulation=null; Connecting=false; ownsHotel=false;NeedsRecovery=false;SaveError="";
+            poseTimes.Clear(); rates.Clear(); sequences.Clear(); approvedClients.Clear(); sequence=0;
             return true;
         }
         void OnApplicationQuit() { Save(); if(Manager!=null)Manager.Shutdown(); HotelSteam.Shutdown(); }

@@ -52,7 +52,7 @@ namespace WorstHotel
             UI=gameObject.AddComponent<HotelUI>(); UI.Game=this;
             SetCursor();
             string[] args=Environment.GetCommandLineArgs();
-            Automated=args.Contains("-whe-smoke");
+            Automated=args.Contains("-whe-smoke")||args.Contains("-whe-session-tests");
             Debug.Log("WHE_INPUT keyboard="+(Keyboard.current!=null)+" mouse="+(Mouse.current!=null));
             int portIndex=Array.IndexOf(args,"-whe-port"); ushort port=7777;
             if(portIndex>=0 && portIndex+1<args.Length) ushort.TryParse(args[portIndex+1],out port);
@@ -60,6 +60,7 @@ namespace WorstHotel
             int clientIndex=Array.IndexOf(args,"-whe-client");
             if(clientIndex>=0 && clientIndex+1<args.Length) { Session.Join(args[clientIndex+1],port,""); Panel=""; }
             if(args.Contains("-whe-smoke")) gameObject.AddComponent<HotelSmokeTest>();
+            if(args.Contains("-whe-session-tests")) gameObject.AddComponent<HotelSessionSmokeTest>();
         }
         void CreatePlayer()
         {
@@ -98,9 +99,13 @@ namespace WorstHotel
             if(keyboard!=null && keyboard.escapeKey.wasPressedThisFrame) {
                 Panel=Playing?(Panel==""?"pause":""):"menu"; StopWork(); SetCursor();
             }
+            if(Playing && keyboard!=null && keyboard.tabKey.wasPressedThisFrame) {
+                OpenPanel(Panel=="tasks"?"":"tasks");
+            }
             if(!Playing) {
                 if(player!=null) { View.transform.SetParent(null); Destroy(player); player=null; Controller=null; carry=null; carryKind=""; }
-                if(!Session.Connecting && Panel!="menu" && Panel!="connect" && Panel!="new" && Panel!="settings" && Panel!="steam") Panel="menu";
+                if(Session.NeedsRecovery)Panel="recovery";
+                else if(!Session.Connecting && Panel!="menu" && Panel!="connect" && Panel!="new" && Panel!="settings" && Panel!="steam") Panel="menu";
                 guestCount=0;oldNotice="";
                 View.transform.position=new Vector3(3.7f+Mathf.Sin(Time.unscaledTime*.08f)*.35f,2.25f,-5.8f);
                 View.transform.LookAt(new Vector3(-.4f,1.2f,1.7f)); SetCursor(); return;
@@ -122,7 +127,6 @@ namespace WorstHotel
                     if(Physics.Raycast(View.transform.position,View.transform.forward,out var obstruction,1.2f)) drop=obstruction.point-View.transform.forward*.35f;
                     Session.Send(new HotelCommand("drop"){position=drop}); Sound(tick);
                 }
-                if(keyboard.tabKey.wasPressedThisFrame) OpenPanel("tasks");
                 if(keyboard.f5Key.wasPressedThisFrame) { if(Session.Save()) Notify("Отель сохранён."); else if(!Session.IsHost) Notify("Сохранением управляет хост."); }
             } else { FocusLabel=""; FocusId=""; }
             if(Time.unscaledTime>nextPose) {
@@ -174,10 +178,7 @@ namespace WorstHotel
             if(!Physics.Raycast(View.transform.position,View.transform.forward,out var hit,3.15f,~(1<<2),QueryTriggerInteraction.Ignore)) return;
             var target=hit.collider.GetComponentInParent<HotelTarget>(); if(target==null) return;
             FocusId=target.id; FocusLabel=target.label;
-            var item=Session.State.items.Find(x=>x.id==FocusId&&!x.consumed);
-            if(item!=null) FocusLabel=ItemName(item.kind)+(item.holder<0?" · взять":" · у сотрудника");
-            if(FocusId.StartsWith("sink_")) FocusLabel="Раковина · удерживайте E с инструментами";
-            if(FocusId.StartsWith("water_")) FocusLabel="Вода на полу · удерживайте E со шваброй";
+            FocusLabel=HotelPresentation.FocusText(Session.State,Session.LocalId,FocusId,FocusLabel);
         }
         void Interact()
         {
@@ -221,7 +222,7 @@ namespace WorstHotel
             Toast=text; toastUntil=Time.unscaledTime+6;
         }
         public void Leave() { StopWork(); if(Session.Disconnect())OpenPanel("menu"); }
-        bool CanQuit(){if(Session!=null&&Session.IsHost&&!Session.Save()){OpenPanel("pause");return false;}return true;}
+        bool CanQuit(){if(Session!=null&&Session.OwnsHotel&&!Session.Save()){OpenPanel(Session.NeedsRecovery?"recovery":"pause");return false;}return true;}
         void OnDestroy(){Application.wantsToQuit-=CanQuit;}
         public void StoreSettings() {
             PlayerPrefs.SetFloat("sensitivity",Sensitivity);PlayerPrefs.SetFloat("fov",Fov);PlayerPrefs.SetFloat("volume",Volume);

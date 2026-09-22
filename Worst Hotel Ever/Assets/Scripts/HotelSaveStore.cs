@@ -211,7 +211,9 @@ namespace WorstHotel
             try { return Read(path); }
             // Future versions must not silently fall back to an older checkpoint and be overwritten.
             catch (InvalidDataException) { return null; }
-            catch (IOException) { return null; }
+            catch (FileNotFoundException) { return null; }
+            // A temporarily locked/inaccessible file is not corrupt. Loading an older backup
+            // here would silently roll back a healthy hotel and overwrite it on the next save.
         }
 
         private static HotelState Read(string path)
