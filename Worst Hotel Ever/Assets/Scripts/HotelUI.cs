@@ -76,7 +76,7 @@ namespace WorstHotel
             Box(new Rect(49,67,62,5),gold);Text(new Rect(49,90,450,30),"КОМАНДА НУЖНА. ОПЫТ НЕОБЯЗАТЕЛЕН.",small,gold);
             Text(new Rect(43,140,510,260),"WORST\nHOTEL\nEVER",huge);
             Text(new Rect(49,388,465,78),"Четыре номера. Два сотрудника.\nИ всё обязательно пойдёт не так.",normal);
-            Text(new Rect(49,837,465,30),"PRE-MVP 0.3  /  WINDOWS  /  1–2 СОТРУДНИКА",small,muted);
+            Text(new Rect(49,837,465,30),"PRE-MVP 0.4  /  WINDOWS  /  1–2 СОТРУДНИКА",small,muted);
             Box(new Rect(998,24,397,74),new Color(.065f,.105f,.11f,.84f));
             Text(new Rect(1017,36,366,50),"ОТЕЛЬ «ПОЧТИ ГРАНД»\n★  НАЧНИТЕ С ЧИСТОГО ПОЛОТЕНЦА",small,paper);
             if(Game.Panel=="menu" && Button(new Rect(980,673,405,53),"Тест Steam (AppID 480)"))Game.Panel="steam";
@@ -330,9 +330,11 @@ namespace WorstHotel
             Game.Sensitivity=GUI.HorizontalSlider(new Rect(230,451,950,22),Game.Sensitivity,.025f,.25f);
             Text(new Rect(230,500,950,35),"Громкость: "+Mathf.RoundToInt(Game.Volume*100)+"%",bold);
             Game.Volume=GUI.HorizontalSlider(new Rect(230,550,950,22),Game.Volume,0,1);
-            if(Button(new Rect(230,609,450,48),"Инверсия Y: "+(Game.InvertY?"вкл":"выкл")))Game.InvertY=!Game.InvertY;
-            if(Button(new Rect(704,609,476,48),"Покачивание камеры: "+(Game.Bob?"вкл":"выкл")))Game.Bob=!Game.Bob;
-            if(Button(new Rect(230,696,950,49),"Сохранить настройки",true,true)){Game.StoreSettings();Game.OpenPanel(Game.Playing?"pause":"menu");}
+            if(Button(new Rect(230,588,450,48),"Инверсия Y: "+(Game.InvertY?"вкл":"выкл")))Game.InvertY=!Game.InvertY;
+            if(Button(new Rect(704,588,476,48),"Покачивание камеры: "+(Game.Bob?"вкл":"выкл")))Game.Bob=!Game.Bob;
+            if(Button(new Rect(230,650,450,48),"Движения рук: "+(Game.HandMotion?"вкл":"выкл")))Game.HandMotion=!Game.HandMotion;
+            if(Button(new Rect(704,650,476,48),"Звуки протечек: "+(Game.AmbientSound?"вкл":"выкл")))Game.AmbientSound=!Game.AmbientSound;
+            if(Button(new Rect(230,718,950,49),"Сохранить настройки",true,true)){Game.StoreSettings();Game.OpenPanel(Game.Playing?"pause":"menu");}
         }
         void SteamMenu()
         {

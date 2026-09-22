@@ -79,6 +79,8 @@ namespace WorstHotel
                 checks.Add("DISCONNECT_RELEASES_OWNERSHIP");
                 if(game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Host did not observe completed bed work");yield break;}
                 checks.Add("HOST_SEES_CLIENT_ROOM_WORK");
+                if(game.Audio.CompletionCount!=0){Finish(false,"Host claimed remote work as its own completion");yield break;}
+                checks.Add("REMOTE_WORK_DOES_NOT_EMIT_LOCAL_SUCCESS");
                 if(!game.Session.State.guidedOpening){Finish(false,"Client changed host-only guided pace");yield break;}
                 if(!game.Session.Save()||HotelSaveStore.Load(game.Session.SavePath).rooms.Find(r=>r.number==102).bed!=0||!HotelSaveStore.Load(game.Session.SavePath).guidedOpening){Finish(false,"Final cooperative change did not persist");yield break;}
                 checks.Add("COOPERATIVE_CHANGE_PERSISTED");
@@ -153,6 +155,8 @@ namespace WorstHotel
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.5f);
                 if(game.Held?.kind!="dirtylinen"||game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Held E did not complete authoritative bed work");yield break;}
                 checks.Add("HELD_E_BED_WORK_REPLICATED");CaptureWorld("client-room-102");
+                if(game.Audio.CompletionCount!=1||game.Audio.ActiveWork!=""){Finish(false,"Client snapshot completion cue missing/duplicated or loop stuck");yield break;}
+                checks.Add("CLIENT_CONFIRMED_WORK_AUDIO_COMPLETES_ONCE_AND_STOPS");
                 deadline=Time.realtimeSinceStartup+8;
                 while(game.Session.State.guests.Count==0&&Time.realtimeSinceStartup<deadline)yield return null;
                 var guest=game.Session.State.guests.Find(g=>g.profileId=="patient");

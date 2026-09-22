@@ -17,12 +17,12 @@ try {
     $report
     if ($report[0] -ne 'PASS' -or $run.ExitCode -ne 0) { throw 'UI render fixture failed.' }
     foreach ($width in @(1280,960)) {
-        foreach ($panel in @('hud','reception','guest','tasks','management','briefing','pace-confirm','finish-confirm','pause','day2-briefing','day2-hud')) {
+        foreach ($panel in @('hud','reception','guest','tasks','management','briefing','pace-confirm','finish-confirm','pause','settings','day2-briefing','day2-hud')) {
             $png = Join-Path $resultsPath "ui-$width-$panel.png"
             if (!(Test-Path -LiteralPath $png) -or (Get-Item -LiteralPath $png).LastWriteTime -lt $started) { throw "Missing or stale screenshot: $png" }
         }
     }
-    Write-Output '22 current UI screenshots captured. Inspect them visually; PASS only asserts rendering, not layout quality.'
+    Write-Output '24 current UI screenshots captured. Inspect them visually; PASS only asserts rendering, not layout quality.'
 } finally {
     if (!$run.HasExited) { Stop-Process -Id $run.Id -ErrorAction SilentlyContinue }
 }

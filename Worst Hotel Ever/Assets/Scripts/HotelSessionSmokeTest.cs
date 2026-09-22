@@ -6,6 +6,10 @@ using System.Reflection;
 using System.Text;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace WorstHotel
 {
@@ -49,6 +53,7 @@ namespace WorstHotel
             if(!Check(game.LocalPlayer!=null,"Connected client has no simulation player"))yield break;
             if(scenario=="ui") {yield return ReviewUI();Finish(errors.Count==0);yield break;}
             if(scenario=="opening") {yield return ReviewOpening();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="feedback") {yield return ReviewFeedback();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario.StartsWith("capacity-client"))
             {
                 checks.Add("CAPACITY_ACCEPTED_WITH_PLAYER");
@@ -233,11 +238,112 @@ namespace WorstHotel
             game.Teleport(new Vector3(0,.1f,-2));
             game.Session.Simulation.Execute(0,new HotelCommand("open"));
             foreach(int width in new[]{1280,960})
-                yield return CapturePanels(width,"",new[]{"","reception","guest","tasks","management","briefing","pace-confirm","finish-confirm","pause"});
+                yield return CapturePanels(width,"",new[]{"","reception","guest","tasks","management","briefing","pace-confirm","finish-confirm","pause","settings"});
             FixtureAt("desk");FixtureCommand("finish");FixtureCommand("nextday");
             foreach(int width in new[]{1280,960})
                 yield return CapturePanels(width,"day2-",new[]{"briefing",""});
-            checks.Add("UI_RENDER_FIXTURES_1280x800_AND_960x600_22_PANELS");
+            checks.Add("UI_RENDER_FIXTURES_1280x800_AND_960x600_24_PANELS");
+        }
+        // Real player and InputSystem path; fixture positioning is deliberately not a human playtest.
+        IEnumerator ReviewFeedback()
+        {
+            var audio=game.Audio;var state=game.Session.State;
+            if(!Check(audio.ClipCount==9&&audio.GetComponentsInChildren<AudioSource>().Length==6,"Audio allocation budget"))yield break;
+            game.AmbientSound=true;state.rooms[0].leak=true;state.rooms[2].leak=true;
+            yield return new WaitForSecondsRealtime(.2f);
+            if(!Check(audio.ActiveLeaks==2,"Spatial leak loops missing"))yield break;
+            foreach(var source in audio.GetComponentsInChildren<AudioSource>())
+                if(source.name.StartsWith("Leak ")&&!Check(source.spatialBlend==1&&source.dopplerLevel==0&&source.maxDistance==9&&source.clip.channels==1,"Invalid spatial source"))yield break;
+            int voices=audio.GetComponentsInChildren<AudioSource>().Length;
+            for(int i=0;i<100;i++)audio.Apply(state,HotelCue.None,"",true);
+            if(!Check(voices==audio.GetComponentsInChildren<AudioSource>().Length&&audio.ClipCount==9,"Repeated snapshots allocated audio"))yield break;
+            game.AmbientSound=false;yield return null;yield return null;
+            if(!Check(audio.ActiveLeaks==0,"Ambient-off retained leak"))yield break;
+            state.rooms[0].leak=false;state.rooms[0].water=.4f;game.AmbientSound=true;
+            game.Volume=0;yield return null;yield return null;
+            if(!Check(audio.ActiveLeaks==1&&AudioListener.volume==0,"Repaired sink, residual water or master mute wrong"))yield break;
+            game.Volume=.55f;state.rooms[2].leak=false;
+            checks.Add("SIX_REUSED_SOURCES_NINE_CLIPS_SPATIAL_LEAKS_MUTE_AND_REPAIR_VERIFIED");
+
+            game.OpenPanel("");game.Teleport(new Vector3(4.4f,.1f,5.5f));
+            game.Session.Simulation.Execute(0,new HotelCommand("pose"){position=new Vector3(4.4f,.1f,5.5f)});
+            game.LookAtForTest(HotelLayout.RoomTarget("bed",102));
+            InputSystem.settings.backgroundBehavior=InputSettings.BackgroundBehavior.IgnoreFocus;
+            InputSystem.EnableDevice(Keyboard.current);
+            yield return new WaitForSecondsRealtime(.25f);
+            if(!Check(game.FocusId=="bed_102","Bed ray not focused"))yield break;
+            int successes=audio.CompletionCount;
+            InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.E));
+            yield return new WaitForSecondsRealtime(.35f);
+            Transform anchor=game.View.transform.Find("Carry anchor");
+            if(!Check(game.ConfirmedWork=="bed_102"&&audio.ActiveWork=="cloth"&&Quaternion.Angle(anchor.localRotation,Quaternion.identity)>1,"Confirmed work did not animate/play"))yield break;
+            CaptureFeedback("work-bed");
+            game.HandMotion=false;yield return new WaitForSecondsRealtime(.35f);
+            if(!Check(Quaternion.Angle(anchor.localRotation,Quaternion.identity)<.3f,"Hand motion toggle not neutral"))yield break;
+            game.HandMotion=true;game.OpenPanel("pause");
+            InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());
+            yield return new WaitForSecondsRealtime(.2f);
+            if(!Check(audio.ActiveWork==""&&audio.CompletionCount==successes&&state.rooms[1].bed==1,"Panel cancel reported success or continued work"))yield break;
+            checks.Add("REAL_E_CONFIRMED_HANDS_AND_WORK_AUDIO_CANCEL_ON_PANEL_MOTION_OFF_NEUTRAL");
+            game.OpenPanel("");yield return new WaitForSecondsRealtime(.1f);
+            InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.E));yield return new WaitForSecondsRealtime(.35f);
+            // Emulate the client ordering: idle feedback arrives before its completed world snapshot.
+            // The host fixture still holds the old world for one frame, then publishes the result.
+            game.Notify("Сначала начните работу.");yield return null;yield return null;
+            // Finish between frames, then release E on the very next Update: the confirmed result
+            // must be observed before local cancellation. Co-op smoke also covers real-time work.
+            for(int i=0;i<30&&game.LocalPlayer.workTarget!="";i++)
+            {FixtureCommand("heartbeat","bed_102");game.Session.Simulation.Tick(.1f);}
+            InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.2f);
+            if(!Check(state.rooms[1].bed==0&&audio.CompletionCount==successes+1&&audio.ActiveWork=="","Completed bed feedback missing/duplicated"))yield break;
+            checks.Add("REAL_E_WORK_RESULT_SURVIVES_IDLE_CALLBACK_STALE_WORLD_AND_RELEASE_EXACTLY_ONCE");
+
+            FixtureAt("desk");FixtureCommand("open");yield return new WaitForSecondsRealtime(.2f);
+            if(!Check(audio.ArrivalCount==1,"Live first arrival absent or duplicated"))yield break;
+            int arrivals=audio.ArrivalCount;
+            if(!Check(game.Session.Save()&&game.Session.Disconnect(),"Feedback fixture save/disconnect failed"))yield break;
+            yield return new WaitForSecondsRealtime(.2f);
+            if(!Check(audio.ActiveLeaks==0&&audio.ActiveWork=="","Disconnect retained audio"))yield break;
+            game.Session.Host(true,17783,"");float until=Time.realtimeSinceStartup+6;
+            while(!game.Playing&&Time.realtimeSinceStartup<until)yield return null;
+            yield return new WaitForSecondsRealtime(.3f);
+            if(!Check(game.Playing&&audio.ArrivalCount==arrivals&&audio.ClipCount==9&&audio.GetComponentsInChildren<AudioSource>().Length==6,"Load replayed arrival or leaked sources"))yield break;
+            int anchors=0,carriedVisuals=0;
+            foreach(var node in game.View.GetComponentsInChildren<Transform>())
+            {if(node.name=="Carry anchor")anchors++;if(node.name.StartsWith("Held "))carriedVisuals++;}
+            if(!Check(anchors==1&&carriedVisuals==0&&game.Held==null,"Reconnect retained ghost hands or held item"))yield break;
+            checks.Add("SAVE_RECONNECT_IS_SILENT_BASELINE_AND_REUSES_AUDIO");
+            checks.Add("RECONNECT_HAS_ONE_HAND_RIG_AND_NO_GHOST_CARRIED_ITEM");
+            // Render the shipped figure rig in an isolated visual fixture; model/world integration
+            // is covered separately by HotelFigureTests, not by fabricated guest simulation states.
+            game.OpenPanel("");var observerPosition=new Vector3(2.9f,.1f,3.5f);
+            game.Session.Simulation.Execute(0,new HotelCommand("pose"){position=observerPosition});game.Teleport(observerPosition);
+            yield return new WaitForSecondsRealtime(.2f);
+            game.LookAtForTest(new Vector3(4.2f,1,5.6f));
+            var figure=HotelWorld.MakePerson(false,2);var rig=figure.GetComponent<HotelFigure>();
+            rig.Pose(new Vector3(4.2f,0,5.6f),-148,0,false,false);
+            try {
+                foreach(string reaction in new[]{"queue","request","angry","angry-request","recovered"})
+                {
+                    rig.React(reaction=="queue"?"queue":"staying",reaction.StartsWith("angry")?10:100,reaction.Contains("request"));
+                    yield return new WaitForSecondsRealtime(.8f);
+                    var point=game.View.WorldToViewportPoint(figure.transform.position+Vector3.up);
+                    if(!Check(point.z>0&&point.x>.1f&&point.x<.9f&&point.y>.1f&&point.y<.9f,"Reaction fixture outside camera"))yield break;
+                    CaptureFeedback("guest-"+reaction);
+                }
+            }finally{Destroy(figure);}
+            checks.Add("FIVE_GUEST_REACTION_RENDER_FIXTURES_CAPTURED_FOR_VISUAL_REVIEW");
+        }
+        void CaptureFeedback(string label)
+        {
+            var target=new RenderTexture(1280,800,24,RenderTextureFormat.ARGB32);
+            var previous=RenderTexture.active;Texture2D texture=null;
+            try {
+                target.Create();RenderPipeline.SubmitRenderRequest(game.View,new UniversalRenderPipeline.SingleCameraRequest{destination=target});
+                RenderTexture.active=target;texture=new Texture2D(1280,800,TextureFormat.RGB24,false);
+                texture.ReadPixels(new Rect(0,0,1280,800),0,0);texture.Apply();
+                File.WriteAllBytes(Path.Combine(directory,"feedback-"+label+".png"),texture.EncodeToPNG());
+            }finally{RenderTexture.active=previous;target.Release();Destroy(target);if(texture!=null)Destroy(texture);}
         }
         IEnumerator CapturePanels(int width,string prefix,string[] panels)
         {

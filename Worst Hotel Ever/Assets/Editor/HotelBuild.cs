@@ -20,6 +20,8 @@ namespace WorstHotel.BuildTools
                 results.AddRange(HotelPresentationTests.RunAll());
                 results.AddRange(HotelOnboardingTests.RunAll());
                 results.AddRange(HotelDirectorTests.RunAll());
+                results.AddRange(HotelFeedbackTests.RunAll());
+                results.AddRange(HotelFigureTests.RunAll());
                 File.WriteAllLines(Path.Combine(Root,"TestResults","simulation-tests.txt"),results);
                 Debug.Log("WHE_TESTS_PASSED count="+results.Count);
             } catch(Exception e) {File.WriteAllText(Path.Combine(Root,"TestResults","simulation-tests-failed.txt"),e.ToString());throw;}
@@ -30,7 +32,7 @@ namespace WorstHotel.BuildTools
             Validate();
             EditorSettings.serializationMode=SerializationMode.ForceText;
             PlayerSettings.companyName="Almost Grand";PlayerSettings.productName="Worst Hotel Ever";
-            PlayerSettings.bundleVersion="0.3.0";
+            PlayerSettings.bundleVersion="0.4.0";
             PlayerSettings.runInBackground=true;PlayerSettings.resizableWindow=true;
             PlayerSettings.defaultScreenWidth=1440;PlayerSettings.defaultScreenHeight=900;
             PlayerSettings.fullScreenMode=FullScreenMode.Windowed;
