@@ -11,13 +11,18 @@ namespace WorstHotel
         public const float HeartbeatTimeout = .8f;
         public const int ToolboxPrice = 220, BedsPrice = 400, CartPrice = 320;
         public HotelState State { get; private set; }
+        public string CatalogWarning { get { return catalog.Warning; } }
+        private readonly HotelGuestCatalog catalog;
         private double workClock;
         private readonly Dictionary<ulong, double> heartbeats = new Dictionary<ulong, double>();
         private static readonly Vector3 Reception = new Vector3(.7f, 0, -2.3f);
         private static readonly Vector3 Exit = new Vector3(0, 0, -6.3f);
 
-        public HotelSimulation(HotelState state = null)
+        public HotelSimulation(HotelState state = null) : this(state, null) { }
+
+        public HotelSimulation(HotelState state, HotelGuestCatalog guestCatalog)
         {
+            catalog = guestCatalog ?? HotelGuestCatalog.Load();
             State = state ?? NewHotel();
             HotelSaveStore.Validate(State);
             // A snapshot may contain a half-finished hold. A fresh host requires fresh input.
@@ -26,7 +31,7 @@ namespace WorstHotel
 
         private static HotelState NewHotel()
         {
-            var state = new HotelState();
+            var state = new HotelState { contentVersion = 1, guidedOpening = true };
             for (int number = 101; number <= 104; number++) state.rooms.Add(new RoomState { number = number });
             state.rooms[1].bed = 1;
             state.rooms[1].trash = true;
@@ -94,6 +99,10 @@ namespace WorstHotel
                     if (playerId != 0) return "Это действие подтверждает хозяин отеля.";
                     State.tutorialSkipped = command.action == "skipTutorial";
                     return "";
+                case "endGuidedOpening":
+                    if (playerId != 0) return "Это действие подтверждает хозяин отеля.";
+                    HotelDirector.EndGuidedOpening(State);
+                    return "";
                 case "checkin":
                     if (!Near(player, HotelLayout.Target("desk"))) return "Подойдите к стойке регистрации.";
                     return CheckIn(command.number);
@@ -149,9 +158,10 @@ namespace WorstHotel
                 else if (workClock > last + HeartbeatTimeout) Cancel(player);
             }
             if (State.phase != "open" && State.phase != "closing") return;
+            HotelDirector.Advance(State);
             if (State.phase == "open")
             {
-                State.time = Mathf.Min(State.dayLength, State.time + dt);
+                if (!HotelDirector.ClockHeld(State)) State.time = Mathf.Min(State.dayLength, State.time + dt);
                 SpawnDueGuests();
                 if (State.time >= State.dayLength)
                 {
@@ -167,8 +177,7 @@ namespace WorstHotel
 
         private void SpawnDueGuests()
         {
-            int count = State.day == 1 ? 3 : 4;
-            while (State.arrivals < count && State.time >= State.arrivals * 85f)
+            while (HotelDirector.ArrivalDue(State))
             {
                 int sequence = State.arrivals++;
                 int id = State.nextGuest++;
@@ -179,21 +188,29 @@ namespace WorstHotel
                     trait = sequence == 0 ? "Терпеливый" : sequence % 2 == 0 ? "Любит порядок" : "Спешит",
                     position = new Vector3(-.8f + sequence * .55f, 0, -3.3f - sequence * .5f)
                 };
+                if (State.contentVersion == 1)
+                {
+                    string profile = sequence == 0 ? "patient" : State.day == 1 ? (sequence == 1 ? "tidy" : "hurried") : (sequence % 2 == 1 ? "hurried" : "tidy");
+                    catalog.ApplySnapshot(guest, profile);
+                }
                 State.guests.Add(guest);
                 State.items.Add(new ItemState { id = "luggage_" + id, kind = "bag", ownerGuest = id,
                     position = new Vector3(2.5f + sequence * .6f, .25f, -4.5f) });
                 State.notice = guest.name + " ждёт регистрации. Чемодан отмечен именем владельца.";
+                HotelDirector.Arrived(State, guest);
             }
         }
 
         private void TickGuest(GuestState guest, float dt)
         {
+            bool held = HotelDirector.ClockHeld(State);
+            bool snapshot = guest.profileVersion == 1;
             switch (guest.stage)
             {
                 case "queue":
-                    guest.waited += dt;
-                    if (guest.waited > (guest.kind == "patient" ? 90 : 55)) Remember(guest, "Долго ждал регистрации", -12);
-                    if (guest.waited > 210 || State.phase == "closing")
+                    if (!held) guest.waited += dt;
+                    if (!held && guest.waited > (snapshot ? guest.patienceWarning : guest.kind == "patient" ? 90 : 55)) Remember(guest, "Долго ждал регистрации", -12);
+                    if ((!held && guest.waited > (snapshot ? guest.patienceLimit : 210)) || State.phase == "closing")
                     {
                         Remember(guest, "Не удалось заселиться", -35);
                         Review(guest);
@@ -215,18 +232,23 @@ namespace WorstHotel
                     }
                     break;
                 case "staying":
-                    guest.stay += dt;
+                    if (!held) guest.stay += dt;
                     RoomState occupied = Room(guest.room);
-                    if (guest.stay >= 25 && !guest.memories.Contains("Попросил дополнительное полотенце"))
+                    // During guided basics the request clock starts only once this guest has a bag.
+                    if (State.contentVersion == 1 && (!held || guest.luggageDelivered) && !guest.memories.Contains("Попросил дополнительное полотенце")) guest.requestElapsed += dt;
+                    float requestAge = State.contentVersion == 1 ? guest.requestElapsed : guest.stay;
+                    if (requestAge >= (snapshot ? guest.requestDelay : 25) && !guest.memories.Contains("Попросил дополнительное полотенце"))
                     {
                         guest.towelRequested = true;
                         Remember(guest, "Попросил дополнительное полотенце", 0);
                         State.notice = guest.name + ": дополнительное полотенце в номер " + guest.room + ".";
                     }
-                    if (guest.stay >= 65 && guest.towelRequested) Remember(guest, "Не дождался дополнительного полотенца", -14);
-                    if (guest.stay >= 60 && !guest.luggageDelivered) Remember(guest, "Багаж доставляли долго", -15);
+                    if (guest.towelRequested && !held) guest.requestWait += dt;
+                    bool lateTowel = State.contentVersion == 1 ? guest.requestWait >= (snapshot ? guest.requestGrace : 40) : guest.stay >= 65;
+                    if (!held && lateTowel && guest.towelRequested) Remember(guest, "Не дождался дополнительного полотенца", -14);
+                    if (!held && guest.stay >= (snapshot ? guest.luggageGrace : 60) && !guest.luggageDelivered) Remember(guest, "Багаж доставляли долго", -15);
                     // One bounded leak event per day, persisted by the guest's memory.
-                    if (guest.id % (State.day == 1 ? 3 : 4) == 1 && guest.stay >= 80 &&
+                    if (State.contentVersion == 0 && guest.id % (State.day == 1 ? 3 : 4) == 1 && guest.stay >= 80 &&
                         !guest.memories.Contains("Раковина начала протекать"))
                     {
                         occupied.leak = true;
@@ -234,7 +256,7 @@ namespace WorstHotel
                         State.notice = "Протечка в номере " + occupied.number + ": нужны инструменты, затем швабра.";
                     }
                     if (occupied.water > .3f) Remember(guest, "Пришлось ходить по мокрому полу", -18);
-                    if (guest.stay >= 160 || State.phase == "closing")
+                    if ((!held && guest.stay >= (snapshot ? guest.stayDuration : 160)) || State.phase == "closing")
                     {
                         guest.stage = "checkout";
                         guest.waited = 0;
@@ -245,9 +267,9 @@ namespace WorstHotel
                     if (MoveRoute(guest, false, dt))
                     {
                         guest.waited += dt;
-                        if (guest.waited > 45) Remember(guest, "Долго оформляли выезд", -10);
+                        if (guest.waited > (snapshot ? guest.checkoutWarning : 45)) Remember(guest, "Долго оформляли выезд", -10);
                         // An unattended desk cannot trap the shift forever.
-                        if (guest.waited > 100) Settle(guest);
+                        if (guest.waited > (snapshot ? guest.checkoutLimit : 100)) Settle(guest);
                     }
                     break;
                 case "leaving":
@@ -418,6 +440,13 @@ namespace WorstHotel
             State.day++;
             State.time = 0;
             State.arrivals = 0;
+            State.nextArrivalTime = 0;
+            State.dailyLeakIssued = false;
+            State.guidedStage = HotelDirector.Released;
+            State.guidedGuestId = 0;
+            State.guidedLeakRoom = 0;
+            State.guidedRepairDone = false;
+            State.guidedMopDone = false;
             State.earned = 0;
             State.expenses = cost;
             State.served = 0;
@@ -650,6 +679,7 @@ namespace WorstHotel
             else if (kind == "sink")
             {
                 room.leak = false;
+                HotelDirector.Repaired(State, room);
                 HotelOnboarding.Record(State, HotelTutorialSkill.RepairLeak);
                 GuestState guest = Guest(room.guestId);
                 if (guest != null) Remember(guest, "Персонал починил раковину", 6);
@@ -657,6 +687,7 @@ namespace WorstHotel
             else if (kind == "water")
             {
                 room.water = 0;
+                HotelDirector.Mopped(State, room);
                 HotelOnboarding.Record(State, HotelTutorialSkill.MopWater);
             }
             Cancel(player);

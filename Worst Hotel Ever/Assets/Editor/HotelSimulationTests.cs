@@ -41,7 +41,10 @@ namespace WorstHotel
         }
         private static HotelSimulation New()
         {
-            var sim = new HotelSimulation();
+            // These regression scenarios exercise the original 0.1 timing contract explicitly.
+            var sim = new HotelSimulation(null, HotelGuestCatalog.Legacy());
+            sim.State.contentVersion = 0;
+            sim.State.guidedOpening = false;
             sim.Join(0); sim.Join(1);
             return sim;
         }

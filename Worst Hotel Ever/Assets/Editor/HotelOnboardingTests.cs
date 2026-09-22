@@ -34,7 +34,10 @@ namespace WorstHotel
         private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
         private static HotelSimulation New()
         {
-            var sim = new HotelSimulation(); sim.Join(0); sim.Join(1); return sim;
+            // Preserve 0.2 hint/timing coverage; new-world guided behavior has its own director suite.
+            var sim = new HotelSimulation(null, HotelGuestCatalog.Legacy());
+            sim.State.contentVersion = 0; sim.State.guidedOpening = false;
+            sim.Join(0); sim.Join(1); return sim;
         }
         private static void Ok(HotelSimulation sim, ulong id, string action, string target = "", int number = 0)
         {

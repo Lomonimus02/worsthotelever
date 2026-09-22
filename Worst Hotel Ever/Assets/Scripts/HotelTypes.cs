@@ -17,6 +17,10 @@ namespace WorstHotel
         public Vector3 position; public float waited, stay, satisfaction = 100;
         public bool luggageDelivered, towelRequested, compensated, paid;
         public List<string> memories = new List<string>();
+        // Immutable-at-arrival balance snapshot. Zero version preserves pre-0.3 guest behavior.
+        public int profileVersion; public string profileId, requestId, requestKind;
+        public float patienceWarning, patienceLimit, requestDelay, requestGrace, stayDuration;
+        public float luggageGrace, checkoutWarning, checkoutLimit, requestElapsed, requestWait;
     }
     [Serializable] public class ItemState
     {
@@ -36,6 +40,11 @@ namespace WorstHotel
         public bool secondToolbox, betterBeds, cartUpgrade; public int arrivals;
         // Additive v1 fields: missing values in older JSON mean no recorded skills and help enabled.
         public int tutorialFlags; public bool tutorialSkipped;
+        // Additive save-v1 fields: legacy saves never opt in to pacing or a new catalogue.
+        public int contentVersion; public bool guidedOpening;
+        public int guidedStage, guidedGuestId, guidedLeakRoom;
+        public bool guidedRepairDone, guidedMopDone, dailyLeakIssued;
+        public float nextArrivalTime;
         public List<RoomState> rooms = new List<RoomState>();
         public List<GuestState> guests = new List<GuestState>();
         public List<ItemState> items = new List<ItemState>();

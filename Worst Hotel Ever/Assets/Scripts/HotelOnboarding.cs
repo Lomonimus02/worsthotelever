@@ -26,7 +26,7 @@ namespace WorstHotel
         public bool finished;
     }
 
-    // Contextual first-shift assistance, not a script/director: no scheduling, rewards or world writes.
+    // Read-only contextual help. HotelDirector, not this projection, owns guided pacing.
     public static class HotelOnboarding
     {
         public const int TotalSkills = 8;
@@ -38,14 +38,15 @@ namespace WorstHotel
 
         public static HotelHint GetHint(HotelState state, ulong localPlayerId)
         {
-            if (state == null || state.tutorialSkipped || state.day > 1 ||
-                (state.tutorialFlags & (int)HotelTutorialSkill.All) == (int)HotelTutorialSkill.All ||
+            if (state == null || state.tutorialSkipped || state.day > (state.contentVersion == 1 ? 2 : 1) ||
+                (state.contentVersion == 0 && (state.tutorialFlags & (int)HotelTutorialSkill.All) == (int)HotelTutorialSkill.All) ||
                 state.players == null || state.rooms == null || state.guests == null || state.items == null) return null;
             PlayerState player = state.players.Find(p => p.id == localPlayerId);
             if (player == null) return null;
 
             ItemState held = state.items.Find(i => i.id == player.held && !i.consumed && i.holder == (long)localPlayerId);
             HotelHint hint = held == null ? FreeHandsHint(state, player) : HeldHint(state, player, held);
+            if (state.contentVersion == 1 && state.day == 2) hint.title = "День 2 · " + hint.title;
             int bits = state.tutorialFlags & (int)HotelTutorialSkill.All;
             int completed = 0;
             while (bits != 0) { completed += bits & 1; bits >>= 1; }
@@ -110,6 +111,11 @@ namespace WorstHotel
                 : "Помогите завершить обслуживание. Хозяин отеля подводит итоги на стойке, затем начинает следующий день; неубранное сохранится.", "desk");
             if (state.phase == "preparation")
             {
+                if (state.contentVersion == 1 && state.day == 2 && !state.secondToolbox && !state.cartUpgrade && !state.betterBeds &&
+                    state.cash >= HotelSimulation.ToolboxPrice)
+                    return Hint("Выберите полезное улучшение", player.id == 0
+                        ? "Вчерашние проблемы сохранились. До открытия загляните на доску: второй ящик инструментов, тележка или кровати. Выберите то, чего не хватало команде; покупка необязательна. Затем подготовьте номера и откройте смену."
+                        : "Обсудите с хозяином покупку на доске: второй ящик инструментов, тележку или кровати. Пока он выбирает, вы можете убрать вчерашние номера. Покупка необязательна.", "board");
                 bool ready = state.rooms.Exists(r => r.guestId == 0 && !r.outOfService && r.bed == 2 && !r.leak && r.water <= .65f);
                 if (!ready)
                 {
@@ -117,10 +123,13 @@ namespace WorstHotel
                     if (prepare != null) return prepare;
                     if (state.rooms.Exists(r => r.guestId == 0 && r.outOfService)) return ReopenRoom(player);
                 }
-                return Hint("Откройте первую смену", player.id == 0
+                return Hint(state.day == 1 ? "Откройте первую смену" : "Подготовьте и откройте отель", player.id == 0
                     ? "Осмотритесь и подготовьте отель. Когда команда готова, подойдите к стойке, нажмите E и выберите «Открыть»."
                     : "Помогите подготовить номера. Когда команда готова, хозяин отеля подходит к стойке, нажимает E и выбирает «Открыть».", "desk");
             }
+
+            HotelHint guided = GuidedHint(state, player);
+            if (guided != null) return guided;
 
             GuestState queue = state.guests.Find(g => g.stage == "queue");
             if (queue != null && state.phase == "open")
@@ -148,6 +157,34 @@ namespace WorstHotel
             if (cleaning != null) return cleaning;
             if (queue != null) return Hint("Дождитесь свободного номера", queue.name + " ждёт регистрации, но подходящего свободного номера сейчас нет. После выезда подготовьте кровать; текущие дела видны по Tab.", "desk");
             return Hint("Следите за отелем", "Гости сами подходят к стойке и сообщают о нуждах. Tab показывает актуальные задачи. Помощь реагирует на происходящее; ждать специального учебного события не нужно.", "");
+        }
+
+        private static HotelHint GuidedHint(HotelState state, PlayerState player)
+        {
+            if (!HotelDirector.ClockHeld(state)) return null;
+            if (state.guidedStage == HotelDirector.Leak)
+            {
+                RoomState room = state.rooms.Find(r => r.number == state.guidedLeakRoom);
+                if (room != null && room.leak) return ToolHint(state, player, "toolbox", room);
+                if (room != null && room.water > .001f) return ToolHint(state, player, "mop", room);
+                return Hint("Последствия устранены", "Раковина не течёт, пол сухой. Отель перейдёт к обычному темпу; текущая работа и результаты сохраняются.", "");
+            }
+            if (state.guidedStage == HotelDirector.Preparation && (state.tutorialFlags & (int)HotelTutorialSkill.CleanBed) == 0)
+                return PrepareRoomHint(state, player, false) ?? Hint("Подготовьте чистую кровать", "Часы ждут подготовки свободной кровати. Можно работать в любом доступном номере; номер первого гостя не обязателен.", "");
+            GuestState guest = state.guests.Find(g => g.id == state.guidedGuestId && (g.stage == "walking" || g.stage == "staying"));
+            if (guest == null) return null;
+            if (!guest.luggageDelivered)
+            {
+                ItemState bag = state.items.Find(i => !i.consumed && i.kind == "bag" && i.ownerGuest == guest.id && i.holder < 0);
+                if (bag != null) return Hint("Доставьте багаж: " + guest.name, "Возьмите чемодан кнопкой E и отнесите к месту багажа в номере " + guest.room + ". После доставки гость попросит дополнительное полотенце; часы пока стоят.", bag.id);
+            }
+            if (guest.towelRequested) return SupplyHint(state, player, "towel", guest.room, true);
+            if ((state.tutorialFlags & (int)HotelTutorialSkill.CleanBed) == 0)
+            {
+                HotelHint prepare = PrepareRoomHint(state, player, false);
+                if (prepare != null) return prepare;
+            }
+            return Hint("Гость осваивается в номере", "После доставки багажа гость попросит полотенце. Подойдите к нужной цели, когда запрос появится; часы смены и сроки отъезда пока стоят.", "");
         }
 
         private static HotelHint PrepareRoomHint(HotelState state, PlayerState player, bool forArrival)

@@ -270,7 +270,17 @@ namespace WorstHotel
         {
             Require(state != null, "Отель отсутствует.");
             if (state.version > Version) throw new NotSupportedException("Состояние отеля создано более новой версией игры.");
+            if (state.contentVersion > 1) throw new NotSupportedException("Содержимое отеля создано более новой версией игры.");
             Require(state.version == Version, "Неподдерживаемая версия состояния отеля.");
+            Require(state.contentVersion >= 0, "Неверная версия содержимого отеля.");
+            Require(!state.guidedOpening || state.contentVersion == 1, "Вводный режим недоступен в старом мире.");
+            Require(state.guidedStage >= HotelDirector.Welcome && state.guidedStage <= HotelDirector.Released &&
+                state.guidedGuestId >= 0 && state.guidedGuestId < state.nextGuest, "Неверный этап или гость вводного режима.");
+            Require(state.guidedLeakRoom == 0 || (state.guidedLeakRoom >= 101 && state.guidedLeakRoom <= 104), "Неверный номер вводной протечки.");
+            Require(state.guidedStage != HotelDirector.Leak || (state.guidedLeakRoom != 0 && state.dailyLeakIssued), "Потерян источник вводной протечки.");
+            Require(!state.guidedRepairDone || (state.guidedStage >= HotelDirector.Leak && state.guidedLeakRoom != 0), "Ремонт отмечен до протечки.");
+            Require(!state.guidedMopDone || state.guidedRepairDone, "Уборка вводной протечки отмечена до ремонта.");
+            Require(HotelGuestCatalog.InRange(state.nextArrivalTime, 0, state.dayLength + HotelDirector.NormalArrivalInterval), "Неверное время следующего прибытия.");
             Require(!string.IsNullOrWhiteSpace(state.worldId) && state.worldId.Length <= 128, "Отсутствует ID отеля.");
             Require(state.day > 0 && state.day < 1000000 && state.nextGuest > 0 && state.nextGuest < int.MaxValue - 10, "Неверные счётчики отеля.");
             Require(state.phase == "preparation" || state.phase == "open" || state.phase == "closing" || state.phase == "summary", "Неизвестная фаза смены.");
@@ -299,6 +309,7 @@ namespace WorstHotel
                 Require(HotelSimulation.Finite(guest.position) && HotelSimulation.Walkable(guest.position), "Гость вне доступного отеля.");
                 Require(HotelSimulation.Finite(guest.satisfaction) && guest.satisfaction >= 0 && guest.satisfaction <= 100, "Неверная удовлетворённость.");
                 Require(HotelSimulation.Finite(guest.waited) && guest.waited >= 0 && HotelSimulation.Finite(guest.stay) && guest.stay >= 0, "Неверные таймеры гостя.");
+                ValidateGuestSnapshot(guest, state.contentVersion);
                 ValidateStrings(guest.memories, 64);
                 Require(!string.IsNullOrEmpty(guest.name) && guest.name.Length <= 128, "Отсутствует имя гостя.");
                 bool occupying = guest.stage == "walking" || guest.stage == "staying" || guest.stage == "checkout";
@@ -356,6 +367,20 @@ namespace WorstHotel
                     if (item.kind == "bag" && item.ownerGuest == guest.id && !item.consumed) count++;
                 Require(count == 1, "Потерян или продублирован чемодан гостя.");
             }
+        }
+
+        private static void ValidateGuestSnapshot(GuestState guest, int contentVersion)
+        {
+            if (guest.profileVersion > 1) throw new NotSupportedException("Параметры гостя созданы более новой версией игры.");
+            Require(guest.profileVersion >= 0 && (contentVersion != 0 || guest.profileVersion == 0), "Неверная версия параметров гостя.");
+            Require(HotelGuestCatalog.InRange(guest.requestElapsed, 0, 1000000) && HotelGuestCatalog.InRange(guest.requestWait, 0, 1000000), "Неверные таймеры запроса гостя.");
+            if (guest.profileVersion == 0) return;
+            Require(HotelGuestCatalog.ValidId(guest.profileId) && HotelGuestCatalog.ValidId(guest.requestId) && guest.requestKind == "extra_towel", "Неверный профиль или запрос гостя.");
+            Require(HotelGuestCatalog.InRange(guest.patienceWarning, 5, 600) && HotelGuestCatalog.InRange(guest.patienceLimit, 10, 1200) && guest.patienceLimit > guest.patienceWarning, "Повреждено терпение гостя.");
+            Require(HotelGuestCatalog.InRange(guest.requestDelay, 1, 120) && HotelGuestCatalog.InRange(guest.requestGrace, 5, 300) &&
+                HotelGuestCatalog.InRange(guest.stayDuration, 60, 400) && guest.requestDelay < guest.stayDuration, "Повреждены сроки запроса или проживания.");
+            Require(HotelGuestCatalog.InRange(guest.luggageGrace, 5, 300) && HotelGuestCatalog.InRange(guest.checkoutWarning, 5, 300) &&
+                HotelGuestCatalog.InRange(guest.checkoutLimit, 10, 600) && guest.checkoutLimit > guest.checkoutWarning, "Повреждены сроки багажа или выезда.");
         }
 
         private static void ValidateStrings(List<string> strings, int max)

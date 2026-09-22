@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "requests": [
+    { "id": "patient_towel", "kind": "extra_towel", "delaySeconds": 18, "graceSeconds": 55 },
+    { "id": "hurried_towel", "kind": "extra_towel", "delaySeconds": 10, "graceSeconds": 25 },
+    { "id": "tidy_towel", "kind": "extra_towel", "delaySeconds": 22, "graceSeconds": 35 }
+  ],
+  "profiles": [
+    { "id": "patient", "trait": "Терпеливый", "requestId": "patient_towel", "patienceWarning": 90, "patienceLimit": 240, "staySeconds": 180, "luggageGrace": 75, "checkoutWarning": 45, "checkoutLimit": 100 },
+    { "id": "hurried", "trait": "Спешит", "requestId": "hurried_towel", "patienceWarning": 30, "patienceLimit": 105, "staySeconds": 110, "luggageGrace": 35, "checkoutWarning": 25, "checkoutLimit": 65 },
+    { "id": "tidy", "trait": "Любит порядок", "requestId": "tidy_towel", "patienceWarning": 60, "patienceLimit": 180, "staySeconds": 155, "luggageGrace": 50, "checkoutWarning": 35, "checkoutLimit": 90 }
+  ]
+}
