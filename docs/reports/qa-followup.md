@@ -85,3 +85,53 @@ SHA-256 четырёх основных прочитанных файлов, с�
 - `HotelSaveStore.cs`: `2C06737F00D8ED57FB0514E93CF6F643FACD97EFC1C9686733627B5517801F17`
 - `HotelSteam.cs`: `82CCAEC321B4D88E0397006DEABEC7CB09371827DD5D513550187050A966324A`
 - `HotelSteamTransport.cs`: `9AE1EF662F340896EC3D8602C7EA966440546806722947BD2239FEE9CF7E7195`
+
+## Повторная проверка исправлений — 22 сентября, около 18:19 MSK
+
+Прочитаны незакоммиченные parent-изменения поверх `8586d82`. Родительские правки не переносились и не изменялись. **F01–F04 закрыты по коду. Новых P0/P1 в проверенных recovery-переходах не найдено; runtime-исправления APPROVE в пределах этой проверки. Найденная P2-регрессия F05 затем исправлена и перепроверена; открыто замечание F06 к фильтру ошибок нового fault-теста ниже.** Первоначальный REQUEST CHANGES выше относится к исторической версии.
+
+- **F01:** `HotelSession.cs:21,203,215–222,279–297` сохраняет обязанность записи через OwnsHotel независимо от NGO-роли; OnPreShutdown пытается сохранить и включает NeedsRecovery. Save после shutdown по-прежнему доступен владельцу. Disconnect при ошибке записи возвращает false до очистки состояния даже с аргументом save=false. `HotelGame.cs:106,224` и `HotelUI.cs:45,326–331` удерживают экран восстановления, запрещают обычное закрытие при отказе записи и дают повторить её. `HotelSession.cs:270` останавливает симуляцию во время восстановления/shutdown. Удалённый клиент не получает право записи, поскольку ownsHotel устанавливается только в успешном пути хозяина.
+- **F02:** `HotelSession.cs:57–68` объединяет ConnectedClientsIds и approvedClients и резервирует ID непосредственно в callback. `:190–203` освобождает резервы на connected/disconnected; `:193` дополнительно отключает клиента, которого не приняла симуляция; `:297` очищает резервы при завершении сессии. Два запроса одной очереди больше не видят один и тот же свободный слот.
+- **F03:** `HotelSaveStore.cs:209–217` оставляет fallback только для InvalidDataException/FileNotFoundException. Sharing violation теперь выходит наружу; старый backup не запускается вместо временно заблокированного healthy primary.
+- **F04:** `HotelUI.cs:323` предоставляет явный сброс; `HotelSession.cs:226–229` разрешает его только без Manager, подключения и принадлежащего сессии мира, затем вызывает HotelSteam.Shutdown. Защита поздних native-ответов сохраняется, но пользователь теперь может выйти из описанного состояния pendingRequest без перезапуска EXE.
+
+### F05 — P2: единый Protocol ломает отдельную offline-компиляцию Steam
+
+**Места:** `Worst Hotel Ever/Assets/Scripts/HotelSteam.cs:21` и `Worst Hotel Ever/Assets/Steam/Validation/Verify-Steam.ps1:10,15,21–24,29–32`.
+
+Теперь константа HotelSteam.Protocol ссылается на `HotelSession.Protocol`. Скрипт Verify-Steam формирует `$sources` только из HotelSteam.cs и Steam/Runtime/*.cs; HotelSession.cs в этом наборе нет, а ссылок на Assembly-CSharp также нет. Компилятор не сможет разрешить HotelSession уже при первой сборке; это относится и к NO_STEAM_PLATFORM, потому что константа находится вне платформенного #if. Полная Unity-сборка содержит HotelSession и от этого изменения не ломается.
+
+**Воспроизведение для интегратора:** запустить штатный `Assets/Steam/Validation/Verify-Steam.ps1` с установленными Unity/NGO references. Ожидаемый из перечисленных входов компилятора результат — CS0103 для HotelSession, затем `Compilation failed`, до выполнения offline checks. Скрипт в этой QA-задаче не запускался; сообщение ошибки здесь предсказано по отсутствующему символу, а не скопировано из тестового лога.
+
+**Минимальное исправление:** поместить Protocol в небольшой общий файл без зависимостей от сессии, сослаться на него из HotelSteam и HotelSession и включить этот файл в `$sources` validator. Альтернатива — явно обновить весь необходимый набор исходников/assembly references, сохранив самостоятельность offline-проверки. Повторно компилировать все три конфигурации и offline checks должен интегратор. Находка F05 немедленно передана в основную задачу.
+
+Собственный повторный проход ограничен чтением исходников и проверкой report diff; Unity, EXE, fault injection, native tests и Verify-Steam не запускались. Родитель сообщил, что готовит отдельные регрессионные прогоны; их успех этим отчётом не утверждается.
+
+SHA-256 проверенной незакоммиченной версии:
+
+- `HotelSession.cs`: `304E304575F8D709BFEBE642DB2CD131C394D3A686F55CF23CC9DE4C1843593F`
+- `HotelSaveStore.cs`: `AA1034C45D0852DE3F0E22444912D190A7A2870592AE331F46C18E666D3F1BBA`
+- `HotelSteam.cs`: `04F0F93472F97E781E6D2A385856D711AB83841913A36F39EF68520D87EDD5C8`
+- `HotelGame.cs`: `5B5A7ACAFDC46454EA522EC1E913CDFFF112477FB69555DFD65DC4630E222A91`
+- `HotelUI.cs`: `A4AC162F7CBBA4861421103F48CB859989A5C91C2CA2302EC5ADCFB34921F25A`
+- `Verify-Steam.ps1`: `DCF20908B930AB4CB28862C3B0A9C8B0A2143CDB7D585BE1BE3765DC672520C3`
+
+### Уточнение: F05 закрыта; проверен новый session fault-тест
+
+Интегратор устранил F05 во время повторного прохода: в повторно прочитанном `HotelSteam.cs:23` Protocol снова независимая константа `WHE-premvp-2`, а `HotelPresentationTests.cs:13` проверяет равенство с HotelSession.Protocol. Скрытая зависимость standalone Steam validator от игрового assembly устранена по коду; сам validator здесь не запускался.
+
+Дополнительно прочитаны новые `Worst Hotel Ever/Assets/Scripts/HotelSessionSmokeTest.cs` и `Tools/Test-Session.ps1`. Код теста проверяет реальное изменение cash между checkpoint и транспортным отказом, OwnsHotel после NGO shutdown, сохранность состояния при OS write-lock, запрет Disconnect(false)/CanQuit и успешную повторную запись после снятия lock. Deterministic вызовы approval покрывают резервирование до применения ответов; отдельные три процесса и проверка ровно одного принятого клиента дополняют этот сценарий. Скрипт проверяет свежесть отчётов, PASS и exit code. Это проверка структуры сценария, не утверждение о его успешном выполнении.
+
+### F06 — P2: whitelist ожидаемых отказов скрывает посторонние ошибки
+
+**Место:** `Worst Hotel Ever/Assets/Scripts/HotelSessionSmokeTest.cs:24–26`; границы ожидания `:77–79,92–100`.
+
+При expectedIo фильтр принимает любую Error/Exception/**Assert** с подстрокой `IOException` либо `Sharing violation` во всём приложении. Флаг остаётся включённым во время ожидания кадра/секунды и нескольких следующих вызовов. Ошибка другого файла или другой подсистемы в этот интервал добавляет EXPECTED_SAVE_IO_FAILURE вместо записи в errors и может пройти вместе с PASS. Аналогично expectedFailure допускает любое число сообщений о transport shutdown за целую секунду, хотя ожидаемый NGO error синхронен вызову InjectTransportFailure.
+
+**Контрпример для проверки интегратором:** в окне `expectedIo=true` добавить независимый диагностический `Debug.LogError("IOException: unrelated file operation failed")` либо Assert с этим текстом. При остальных исправных assertions такой посторонний отказ будет принят как ожидаемый и не сорвёт PASS. Инъекция этого контрпримера здесь не выполнялась.
+
+**Минимальное исправление:** никогда не разрешать Assert в whitelist; сужать ожидаемый I/O к конкретному исключению записи целевого save-файла и его save-origin/операции, проверять число ожидаемых отказов. Session.Save сейчас вызывает `Debug.LogError(e)`, поэтому нужно учитывать нормальный LogType.Error, а не требовать только LogType.Exception. Для transport error ограничить флаг try/finally вокруг синхронного InjectTransportFailure и требовать один ожидаемый event на инъекцию. В ветке locked primary по текущему сценарию ожидаются три ошибки Save: OnPreShutdown, Disconnect(false), CanQuit; симуляция/autosave в NeedsRecovery остановлены. Ошибки вне этих операций должны оставаться в errors.
+
+F06 передана интегратору. Проверка ResetSteam в этом сценарии подтверждает guard и допустимость сброса остановленной сессии; она не создаёт настоящий зависший native Steam-запрос, поэтому не должна выдаваться за Steam-online recovery-прогон. Новых runtime P0/P1 при чтении теста и его потребителей не выявлено.
+
+Уточняющие SHA-256 на 18:22 MSK: исправленный `HotelSteam.cs` — `388A1ABA872BAA948D2FCC88AFB923A90390903114E31EFCA2C4CBB3966764C2`; проверенный `HotelSessionSmokeTest.cs` — `91D0EA6250FBD9BAB48878346351E1335ADD7B1F4AEB8435DBC390B2DD5FBC52`; `Tools/Test-Session.ps1` — `2829C7FA1A24759B1D087D49E95F0C5E2D698BD0184984B75E60AA058ACB18B6`.
