@@ -7,6 +7,7 @@
 - [Как играть в опасные смены](README_DANGER.md)
 - [План развития геймплея](docs/RELEASE_GAMEPLAY_PLAN.md)
 - [Плейтест опасностей двумя людьми](docs/DANGER_PLAYTEST_RU.md)
+- [Проверенная сборка 1.1.0-danger-alpha1](docs/reports/release-danger-alpha1.md)
 - [Историческая инструкция MVP](README_MVP.md)
 - [Фактический статус и ограничения](docs/IMPLEMENTATION_STATUS.md)
 - [План и критерии MVP](docs/MVP_EXECUTION_PLAN.md)
