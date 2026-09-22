@@ -35,6 +35,9 @@
 - `Builds/WorstHotelEver-preMVP-0.2-Windows.zip`; архив 0.1 оставлен отдельно.
 - SHA-256 игрового `WorstHotelEver_Data/Managed/Assembly-CSharp.dll`: `610D8BF9E45D237BA7BD78B2EBC421BE85F6CFB72CA6302254FE8A4263C777FD`.
 - SHA-256 EXE bootstrap: `ABC8179E345B70C9D7CA423C54E02739ED9B9ADCA668C2C745FFB81AADC05CC6`. Сам по себе этот EXE hash не определяет версию игровых правил — используйте hash DLL/архива.
+- Исходники runtime: коммит `4caea77` (последующая запись манифеста не меняет player).
+- Архив: 61210344 байта, 175 записей; DLL внутри ZIP сверена с протестированной DLL.
+- SHA-256 ZIP: `1E78CF862511007804B0C7DC830A626E0B6A22A3D545A5ECD83FD7DE6DE3B0AB`.
 
 ## Что остаётся открытым
 
