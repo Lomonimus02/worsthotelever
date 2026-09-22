@@ -465,7 +465,11 @@ namespace WorstHotel
             Tube(machine, "Coffee nozzle", new Vector3(-.16f, .25f, -.23f), new Vector3(-.16f, .14f, -.23f), .045f, Ink.Brass);
             Ball(machine, "Coffee ready light", new Vector3(.02f, .37f, -.225f), Vector3.one * .047f, Ink.Green);
             for (int i = 0; i < 3; ++i) Cup(coffee, new Vector3(.25f, .017f + i * .06f, .03f));
-            Text(coffee, "КОФЕ ДЛЯ ГОСТЕЙ", new Vector3(0, .88f, -.03f), .11f, Ink.Burgundy);
+            // A counter-mounted sign, not oversized lettering floating over the wall motto.
+            foreach(float side in new[]{-1f,1f})
+                Box(coffee, "Coffee sign support", new Vector3(side*.47f,.37f,.26f),new Vector3(.027f,.86f,.027f),Ink.Brass);
+            Box(coffee, "Coffee service sign",new Vector3(0,.8f,.26f),new Vector3(1.1f,.24f,.045f),Ink.Cream);
+            Text(coffee, "КОФЕ ДЛЯ ГОСТЕЙ", new Vector3(0, .8f, .232f), .063f, Ink.Burgundy);
             coffeeStock = Text(coffee, "", new Vector3(0, -.25f, -.35f), .074f, Ink.Cream);
             Target(coffee.gameObject, "coffee", "Приготовить кофе гостю");
             SetActive(upgradedCoffee, false); mvpServices.gameObject.SetActive(false);

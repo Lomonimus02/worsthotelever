@@ -5,7 +5,7 @@ $exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $started = Get-Date
 $logPath = Join-Path $resultsPath 'feedback-player.log'
-$arguments = "-whe-host -whe-port 17783 -whe-session-tests -whe-case feedback -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
+$arguments = "-whe-host -whe-port 17783 -whe-session-tests -whe-legacy-fixture -whe-case feedback -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
 $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {
     if (!$run.WaitForExit(45000)) { throw 'Standalone feedback test timed out.' }

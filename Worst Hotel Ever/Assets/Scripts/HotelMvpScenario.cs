@@ -182,7 +182,7 @@ namespace WorstHotel
                     if (Occupying(guest) && guest.mvp.departureDay > day + 1)
                         continuing.Add(guest.id, Continuation(guest));
                 ClearHands();
-                At(0, "board"); Command(0, new HotelCommand("finish"));
+                At(0, "desk"); Command(0, new HotelCommand("finish"));
                 Need(S.phase == "summary", "Finish did not produce summary.");
                 AssertContinuing(continuing);
                 Audit();
@@ -229,7 +229,7 @@ namespace WorstHotel
                     if (!room.towel && Supply("towel", "towels"))
                     { At(actor, "towel_" + room.number); Command(actor, new HotelCommand("interact", "towel_" + room.number)); return; }
                     if (room.mvp.dirt > .2f) { Work("clean_" + room.number, "mop"); return; }
-                    if (room.mvp.binFill > .02f || (room.guestId == 0 && room.trash))
+                    if (room.mvp.binFill >= .35f || (room.guestId == 0 && room.trash))
                     { Work("trash_" + room.number, ""); ClearHands(); return; }
                 }
                 for (int i = 0; i < 19 && S.phase == "open"; i++) Step();

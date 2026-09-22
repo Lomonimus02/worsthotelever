@@ -1,3 +1,4 @@
+param([switch]$Mvp)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $resultsPath = Join-Path $projectRoot 'TestResults'
@@ -5,7 +6,8 @@ $exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $started = Get-Date
 $logPath = Join-Path $resultsPath 'opening-player.log'
-$arguments = "-whe-host -whe-port 17782 -whe-session-tests -whe-case opening -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
+$fixture = if ($Mvp) { '' } else { '-whe-legacy-fixture' }
+$arguments = "-whe-host -whe-port 17782 -whe-session-tests $fixture -whe-case opening -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
 $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {
     if (!$run.WaitForExit(45000)) { throw 'Standalone two-day opening test timed out.' }

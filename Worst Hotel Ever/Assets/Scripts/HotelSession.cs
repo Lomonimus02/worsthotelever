@@ -12,7 +12,9 @@ namespace WorstHotel
     // One authority and one simulation. Clients send intentions, never modified hotel data.
     public sealed class HotelSession : MonoBehaviour
     {
-        public const string Protocol = "WHE-premvp-3";
+        public const string Protocol = "WHE-mvp-4";
+        // Only the explicit automated legacy fixture flag selects the old regression world.
+        public bool UseLegacyFixture { get; set; }
         public HotelSimulation Simulation { get; private set; }
         public HotelState State { get; private set; }
         public NetworkManager Manager { get; private set; }
@@ -26,6 +28,7 @@ namespace WorstHotel
         public string Status = "";
         public string LastSaved = "";
         public bool SteamMode { get; private set; }
+        public bool PlaytestSlot => Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-playtest") >= 0;
         int operation;
         public Action<string> Feedback;
         float broadcastAt, startedAt, saveAt;
@@ -36,9 +39,11 @@ namespace WorstHotel
         long sequence;
         bool ownsHotel;
         readonly HashSet<ulong> approvedClients = new HashSet<ulong>();
-        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0 || Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0
+        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0 && Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-soak")>=0
+            ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","mvp-soak-checkpoint.json"))
+            : Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0 || Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0
             ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","smoke-save-"+System.Diagnostics.Process.GetCurrentProcess().Id+".json"))
-            : System.IO.Path.Combine(Application.persistentDataPath, "hotel-slot-1.json");
+            : System.IO.Path.Combine(Application.persistentDataPath, PlaytestSlot ? "hotel-playtest-mvp.json" : "hotel-slot-1.json");
 
         void Setup(string address, ushort port, string pass)
         {
@@ -62,10 +67,14 @@ namespace WorstHotel
                 var occupied = new HashSet<ulong>(Manager.ConnectedClientsIds);
                 occupied.UnionWith(approvedClients);
                 response.Approved = version && (occupied.Contains(request.ClientNetworkId) || occupied.Count < 2);
-                if(response.Approved)approvedClients.Add(request.ClientNetworkId);
                 response.CreatePlayerObject = false;
                 response.Pending = false;
                 response.Reason = version ? "В отеле уже два сотрудника." : "Другая версия игры или неверный пароль комнаты.";
+                if(response.Approved && request.ClientNetworkId!=0 && State!=null) {
+                    try { HotelSnapshotCodec.Encode(JsonUtility.ToJson(State)); }
+                    catch(Exception) { response.Approved=false;response.Reason="Этот старый отель слишком велик для сетевой сессии. Хозяин может продолжить один и убрать лишние вещи."; }
+                }
+                if(response.Approved)approvedClients.Add(request.ClientNetworkId);
             };
             Manager.OnClientConnectedCallback += OnConnected;
             Manager.OnClientDisconnectCallback += OnDisconnected;
@@ -84,7 +93,7 @@ namespace WorstHotel
                 if(current!=operation)return;
                 HotelState loaded = load ? HotelSaveStore.Load(SavePath) : null;
                 if(load && loaded==null) throw new InvalidOperationException("Сохранение не найдено.");
-                Simulation = new HotelSimulation(loaded);
+                Simulation = UseLegacyFixture ? new HotelSimulation(loaded) : load ? HotelSimulation.ResumeForPlay(loaded) : HotelSimulation.CreateNewMvp();
                 State = Simulation.State;
                 Setup("127.0.0.1", port, pass);
                 if(!Manager.StartHost()) throw new InvalidOperationException("Не удалось открыть UDP-порт " + port);
@@ -123,7 +132,7 @@ namespace WorstHotel
                 if(!lobby.Success)throw new Exception(lobby.Error);
                 var loaded=load?HotelSaveStore.Load(SavePath):null;
                 if(load&&loaded==null)throw new Exception("Сохранение не найдено.");
-                Simulation=new HotelSimulation(loaded);State=Simulation.State;
+                Simulation=load?HotelSimulation.ResumeForPlay(loaded):HotelSimulation.CreateNewMvp();State=Simulation.State;
                 if(NetworkManager.Singleton!=null)await Task.Yield();
                 if(current!=operation)return;
                 Setup("127.0.0.1",7777,"");
@@ -158,10 +167,16 @@ namespace WorstHotel
             Manager.CustomMessagingManager.RegisterNamedMessageHandler("world", (sender,reader)=> {
                 if(IsHost || sender != NetworkManager.ServerClientId) return;
                 try {
-                    if(reader.Length > 131072) return;
-                    reader.ReadValueSafe(out string json);
+                    if(reader.Length > HotelMvpValidation.MaxSnapshotBytes) throw new InvalidOperationException("Сетевой снимок превышает допустимый размер.");
+                    reader.ReadValueSafe(out int count);
+                    if (count <= 0 || count > reader.Length - reader.Position) throw new InvalidOperationException("Оборванный сетевой снимок.");
+                    var packet = new byte[count];
+                    reader.ReadBytesSafe(ref packet, count);
+                    string json = HotelSnapshotCodec.Decode(packet);
                     var value = JsonUtility.FromJson<HotelState>(json);
-                    if(value != null && value.version == 1 && value.rooms?.Count == 4) {
+                    HotelSaveStore.NormalizeLegacy(value);
+                    HotelSaveStore.Validate(value);
+                    if(value != null) {
                         State = value; Connecting = false; Status = "В сети · сотрудник " + (LocalId+1);
                     }
                 } catch(Exception e) { Debug.LogWarning("Rejected state: " + e.Message); }
@@ -237,7 +252,7 @@ namespace WorstHotel
             if(cmd.action=="pose") {
                 var p=State.players.Find(x=>x.id==id);
                 if(p==null || !Finite(cmd.position.x) || !Finite(cmd.position.y) || !Finite(cmd.position.z) || !Finite(cmd.yaw) || !Finite(cmd.pitch)) return "";
-                if(Mathf.Abs(cmd.position.x)>8 || cmd.position.z < -7.5f || cmd.position.z>17 || cmd.position.y < -1 || cmd.position.y>3) return "";
+                if(Mathf.Abs(cmd.position.x)>8 || cmd.position.z < -7.5f || cmd.position.z>HotelLayout.NorthBoundary || cmd.position.y < -1 || cmd.position.y>3) return "";
                 float elapsed=poseTimes.TryGetValue(id,out float t)?Mathf.Min(Time.unscaledTime-t,.3f):.1f;
                 if(Vector3.Distance(p.position,cmd.position)>8*elapsed+.65f) return "";
                 // Capsule movement supplies collision. Also reject client poses that cross static hotel walls.
@@ -264,6 +279,15 @@ namespace WorstHotel
                 Manager.CustomMessagingManager.SendNamedMessage(name,target,writer,NetworkDelivery.ReliableFragmentedSequenced);
             }
         }
+        void SendWorld(ulong target, byte[] packet)
+        {
+            using (var writer = new FastBufferWriter(packet.Length + 16, Allocator.Temp))
+            {
+                writer.WriteValueSafe(packet.Length);
+                writer.WriteBytesSafe(packet);
+                Manager.CustomMessagingManager.SendNamedMessage("world", target, writer, NetworkDelivery.ReliableFragmentedSequenced);
+            }
+        }
         void Update()
         {
             if(Connecting && Time.unscaledTime-startedAt>(SteamMode?25:12)) { Fail(SteamMode?"Steam-хост не отвечает. Проверьте Steam у обоих игроков.":"Хост не отвечает. Проверьте IP, пароль и UDP-порт. Для интернета нужен доступный порт или VPN-сеть."); return; }
@@ -271,8 +295,20 @@ namespace WorstHotel
             Simulation.Tick(Mathf.Min(Time.unscaledDeltaTime,.1f));
             if(Time.unscaledTime>=broadcastAt) {
                 broadcastAt=Time.unscaledTime+.1f;
-                string json=JsonUtility.ToJson(State);
-                foreach(ulong id in Manager.ConnectedClientsIds) if(id!=0) SendText("world",id,json);
+                var recipients=new List<ulong>();
+                foreach(ulong id in Manager.ConnectedClientsIds)if(id!=0)recipients.Add(id);
+                if(recipients.Count>0) {
+                    try {
+                        byte[] packet=HotelSnapshotCodec.Encode(JsonUtility.ToJson(State));
+                        foreach(ulong id in recipients)SendWorld(id,packet);
+                    } catch(Exception e) {
+                        // A wire-size/serialization failure is not a disk or host failure.
+                        // Keep the owner's playable state; stop clients from acting on stale data.
+                        Status="Сетевой снимок недоступен. Вы можете продолжить один и сохранить отель. "+e.Message;
+                        foreach(ulong id in recipients)Manager.DisconnectClient(id,"Отель больше не помещается в сетевой снимок. Прогресс остаётся у хозяина.");
+                        Feedback?.Invoke(Status);Debug.LogWarning(Status);
+                    }
+                }
             }
             if(Time.unscaledTime>=saveAt) { saveAt=Time.unscaledTime+30; Save(); }
         }

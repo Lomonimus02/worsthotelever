@@ -9,7 +9,7 @@ namespace WorstHotel
         public bool owned = true;
         public int capacity = 1, bedQuality = 1, tvQuality = 1, dirtyTowels;
         public string finishId = "original";
-        public float dirt, binFill, noise;
+        public float dirt, binFill, noise, towelUseProgress;
         public List<MvpEquipmentState> equipment = new List<MvpEquipmentState>();
     }
     [Serializable] public sealed class MvpEquipmentState
@@ -101,6 +101,9 @@ namespace WorstHotel
     }
     [Serializable] public sealed class MvpHotelState
     {
+        // Explicitly initialized by the factory, never by a field initializer: Unity may
+        // serialize a null inline object as a default instance. Zero is not a valid MVP.
+        public int schema;
         public string priceMode = "normal";
         public int rngVersion = 1, rngState = 1597463007, rngDraws, nextId = 1, preparedDay;
         public float elapsed, reputation = 3;

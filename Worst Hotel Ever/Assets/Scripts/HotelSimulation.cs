@@ -5,7 +5,7 @@ using UnityEngine;
 namespace WorstHotel
 {
     // The host calls this class serially. Commands never trust a client supplied owner or work duration.
-    public sealed class HotelSimulation
+    public sealed partial class HotelSimulation
     {
         public const float InteractionDistance = 2.6f;
         public const float HeartbeatTimeout = .8f;
@@ -24,6 +24,7 @@ namespace WorstHotel
         {
             catalog = guestCatalog ?? HotelGuestCatalog.Load();
             State = state ?? NewHotel();
+            HotelSaveStore.NormalizeLegacy(State);
             HotelSaveStore.Validate(State);
             // A snapshot may contain a half-finished hold. A fresh host requires fresh input.
             foreach (PlayerState player in State.players) Cancel(player);
@@ -70,10 +71,11 @@ namespace WorstHotel
             if (player == null) return "Игрок не подключён к отелю.";
             if (command == null || string.IsNullOrEmpty(command.action)) return "Пустая команда.";
             string target = command.target ?? "";
+            if (State.mvp != null && TryMvpCommand(player, command, out string mvpError)) return mvpError;
             switch (command.action)
             {
                 case "pose":
-                    if (!Finite(command.position) || !Finite(command.yaw) || !Finite(command.pitch) || !Walkable(command.position))
+                    if (!Finite(command.position) || !Finite(command.yaw) || !Finite(command.pitch) || !Walkable(command.position) || !OwnedArea(command.position))
                         return "Позиция вне доступного отеля.";
                     player.position = new Vector3(command.position.x, .1f, command.position.z);
                     player.yaw = command.yaw % 360f;
@@ -157,6 +159,7 @@ namespace WorstHotel
                 if (player.workProgress >= 1) CompleteWork(player);
                 else if (workClock > last + HeartbeatTimeout) Cancel(player);
             }
+            if (State.mvp != null) { MvpStep(dt); return; }
             if (State.phase != "open" && State.phase != "closing") return;
             HotelDirector.Advance(State);
             if (State.phase == "open")
@@ -318,6 +321,7 @@ namespace WorstHotel
         // Shared read-only rules for the desk UI; command execution still checks desk distance.
         public static string CheckInBlockReason(HotelState state, int number)
         {
+            if (state?.mvp != null) return HotelHospitalityRules.AssignmentBlockReason(state, state.guests.Find(g => g.stage == "queue")?.id ?? 0, number);
             if (state == null || state.phase != "open") return "Заселение доступно в открытую смену.";
             RoomState room = state.rooms.Find(r => r.number == number);
             if (room == null) return "Такого номера нет.";
@@ -397,6 +401,7 @@ namespace WorstHotel
 
         private string Open()
         {
+            if (State.mvp != null) return MvpOpen();
             if (State.phase != "preparation") return "Смена уже открыта или ещё не подведены итоги.";
             if (!State.rooms.Exists(r => !r.outOfService && r.guestId == 0 && r.bed == 2 && !r.leak && r.water <= .65f))
                 return "Подготовьте хотя бы один доступный номер с чистой кроватью.";
@@ -408,6 +413,7 @@ namespace WorstHotel
 
         private string Finish()
         {
+            if (State.mvp != null) return MvpFinish();
             if (State.phase != "closing" && State.phase != "open") return "Сейчас нет смены для завершения.";
             foreach (GuestState guest in State.guests)
             {
@@ -428,6 +434,7 @@ namespace WorstHotel
 
         private string NextDay()
         {
+            if (State.mvp != null) return MvpNextDay();
             if (State.phase != "summary") return "Сначала завершите текущую смену.";
             int looseLinen = State.items.FindAll(i => !i.consumed && i.kind == "linen").Count;
             int looseTowels = State.items.FindAll(i => !i.consumed && i.kind == "towel").Count;
@@ -456,6 +463,7 @@ namespace WorstHotel
             Log("День " + State.day + ": снабжение и содержание −" + cost);
             State.notice = "День " + State.day + ". Запасы пополнены; грязь и поломки остались. Подготовьтесь и откройте отель.";
             HotelOnboarding.Record(State, HotelTutorialSkill.NextDay);
+            if (promoteAfterShift) TryPromoteLegacy();
             return "";
         }
 
@@ -496,6 +504,7 @@ namespace WorstHotel
 
         private string Interact(PlayerState player, string target)
         {
+            if (State.mvp != null && TryOperationsInteract(player, target, out string mvpError)) return mvpError;
             if (target == "desk" || target == "board") return "Откройте меню стойки или доски.";
             ItemState item = Item(target);
             if (item != null) return Pickup(player, target);
@@ -537,11 +546,17 @@ namespace WorstHotel
             {
                 if (held.kind != "cart" || item.kind != "bag") return "Сначала освободите руки.";
                 if (item.placedRoom == -1) return "Этот чемодан уже на тележке.";
-                if (State.items.FindAll(i => !i.consumed && i.placedRoom == -1).Count >= 2) return "На тележке помещаются два чемодана.";
+                if (State.mvp != null)
+                {
+                    string error = HotelOperationsRules.CartLoadBlockReason(State, item);
+                    if (error != "") return error;
+                }
+                else if (State.items.FindAll(i => !i.consumed && i.placedRoom == -1).Count >= 2) return "На тележке помещаются два чемодана.";
                 item.placedRoom = -1; // Unique cart cargo; independent of ownerGuest and player holder.
                 GuestState owner = Guest(item.ownerGuest);
                 if (owner != null) owner.luggageDelivered = false;
                 UpdateCartCargo();
+                if (State.mvp != null) RefreshRequestFulfillment();
                 return "";
             }
             Cancel(player);
@@ -554,6 +569,7 @@ namespace WorstHotel
                 GuestState owner = Guest(item.ownerGuest);
                 if (owner != null) owner.luggageDelivered = false;
             }
+            if (State.mvp != null) RefreshRequestFulfillment();
             return "";
         }
 
@@ -561,7 +577,7 @@ namespace WorstHotel
         {
             ItemState item = Held(player);
             if (item == null) return "В руках ничего нет.";
-            if (!Finite(position) || !Walkable(position) || FlatDistance(player.position, position) > 2 ||
+            if (!Finite(position) || !Walkable(position) || !OwnedArea(position) || FlatDistance(player.position, position) > 2 ||
                 !SameAccessibleArea(player.position, position)) return "Поставьте предмет рядом на доступный пол.";
             Cancel(player);
             item.holder = -1;
@@ -569,6 +585,7 @@ namespace WorstHotel
             item.placedRoom = 0;
             player.held = "";
             UpdateCartCargo();
+            if (State.mvp != null) RefreshRequestFulfillment();
             return "";
         }
 
@@ -629,6 +646,7 @@ namespace WorstHotel
 
         private string WorkError(PlayerState player, string target)
         {
+            if (State.mvp != null) return OperationsWorkError(player, target);
             if (!TryRoomTarget(target, out string kind, out RoomState room)) return "Здесь нет работы.";
             if (!Near(player, HotelLayout.Target(target))) return "Подойдите ближе и удерживайте E.";
             ItemState item = Held(player);
@@ -655,6 +673,7 @@ namespace WorstHotel
 
         private float WorkDuration(string target)
         {
+            if (State.mvp != null) return OperationsWorkDuration(target);
             TryRoomTarget(target, out string kind, out RoomState room);
             if (kind == "sink") return 5;
             if (kind == "water") return 3;
@@ -664,6 +683,7 @@ namespace WorstHotel
 
         private void CompleteWork(PlayerState player)
         {
+            if (State.mvp != null) { OperationsCompleteWork(player); return; }
             TryRoomTarget(player.workTarget, out string kind, out RoomState room);
             if (kind == "bed")
             {
@@ -725,7 +745,10 @@ namespace WorstHotel
             int slot = 0;
             foreach (ItemState item in State.items)
                 if (!item.consumed && item.placedRoom == -1)
-                    item.position = cart.position + new Vector3(slot++ == 0 ? -.23f : .23f, .25f, 0);
+                {
+                    item.position = cart.position + new Vector3(slot % 2 == 0 ? -.23f : .23f, .25f, slot >= 2 ? .35f : 0);
+                    slot++;
+                }
         }
 
         private void RetireBags(int guestId)
@@ -774,6 +797,7 @@ namespace WorstHotel
         {
             var tasks = new List<string>();
             if(State==null)return tasks;
+            if (State.mvp != null) { tasks.AddRange(HotelOperationsRules.Tasks(State)); tasks.AddRange(HotelHospitalityRules.Tasks(State)); return tasks; }
             foreach (GuestState guest in State.guests)
             {
                 if (guest.stage == "queue") tasks.Add("Заселить: " + guest.name + " (стойка регистрации)");
@@ -816,7 +840,8 @@ namespace WorstHotel
             string[] parts = target.Split('_');
             if (parts.Length != 2 || !int.TryParse(parts[1], out int number)) return false;
             kind = parts[0];
-            if (kind != "bed" && kind != "trash" && kind != "towel" && kind != "bag" && kind != "sink" && kind != "water" && kind != "door") return false;
+            if (kind != "bed" && kind != "trash" && kind != "towel" && kind != "bag" && kind != "sink" && kind != "water" && kind != "door" &&
+                (State.mvp == null || (kind != "toilet" && kind != "tv" && kind != "lamp" && kind != "coffee" && kind != "clean" && kind != "dirtytowel"))) return false;
             room = Room(number);
             return room != null;
         }
@@ -838,8 +863,8 @@ namespace WorstHotel
         {
             if (!Finite(p) || p.y < -.5f || p.y > 2.5f) return false;
             if (Math.Abs(p.x) <= 7.65f && p.z >= -6.8f && p.z <= 1.85f) return true;
-            if (Math.Abs(p.x) <= 1.35f && p.z >= 1.5f && p.z <= 15.6f) return true;
-            for (int n = 101; n <= 104; n++)
+            if (Math.Abs(p.x) <= 1.35f && p.z >= 1.5f && p.z <= 22.6f) return true;
+            for (int n = HotelLayout.FirstRoom; n <= HotelLayout.LastRoom; n++)
             {
                 Vector3 c = HotelLayout.RoomCenter(n);
                 if (Math.Abs(p.z - c.z) > 3.25f) continue;

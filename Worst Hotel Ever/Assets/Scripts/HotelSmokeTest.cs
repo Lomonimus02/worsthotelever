@@ -17,7 +17,7 @@ namespace WorstHotel
         readonly List<string> errors=new List<string>();
         string dir, role;
         HotelGame game;
-        bool walkOk;
+        bool walkOk, mvp;
         void Awake(){Application.logMessageReceived+=Log;}
         void Log(string message,string stack,LogType type){if(type==LogType.Exception||type==LogType.Error||type==LogType.Assert)errors.Add(message+"\n"+stack);}
         IEnumerator Start()
@@ -29,8 +29,9 @@ namespace WorstHotel
             role=game.Session.IsHost?"host":"client";
             checks.Add("CONNECTED "+role+" id="+game.Session.LocalId);
             yield return new WaitForSecondsRealtime(3);
-            if(game.Session.State.rooms.Count!=4){Finish(false,"Expected four rooms");yield break;}
-            checks.Add("FOUR_ROOMS");
+            mvp=game.Session.State.mvp!=null;
+            if(game.Session.State.rooms.Count!=(mvp?6:4)){Finish(false,"Unexpected room count");yield break;}
+            checks.Add(mvp?"SIX_ROOMS_FOUR_OWNED":"FOUR_ROOMS");
             if(game.Controller==null||game.View==null){Finish(false,"First person controller or camera missing");yield break;}
             checks.Add("FIRST_PERSON_CREATED");
             int renderers=FindObjectsByType<Renderer>(FindObjectsSortMode.None).Length;
@@ -53,7 +54,7 @@ namespace WorstHotel
             while(game.Session.State.players.Count<2&&Time.realtimeSinceStartup<deadline)yield return null;
             if(game.Session.State.players.Count<2){Finish(false,"Second player did not join");yield break;}
             checks.Add("TWO_PLAYERS_REPLICATED");
-            if(game.Session.State.contentVersion!=1||!game.Session.State.guidedOpening){Finish(false,"New hotel guided rules not replicated");yield break;}
+            if(game.Session.State.contentVersion!=(mvp?2:1)||!game.Session.State.guidedOpening){Finish(false,"New hotel guided rules not replicated");yield break;}
             checks.Add("GUIDED_RULES_REPLICATED");
             if(game.Session.IsHost) {
                 game.Session.Save();
@@ -84,7 +85,7 @@ namespace WorstHotel
                 if(!game.Session.State.guidedOpening){Finish(false,"Client changed host-only guided pace");yield break;}
                 if(!game.Session.Save()||HotelSaveStore.Load(game.Session.SavePath).rooms.Find(r=>r.number==102).bed!=0||!HotelSaveStore.Load(game.Session.SavePath).guidedOpening){Finish(false,"Final cooperative change did not persist");yield break;}
                 checks.Add("COOPERATIVE_CHANGE_PERSISTED");
-                var savedGuest=HotelSaveStore.Load(game.Session.SavePath).guests.Find(g=>g.profileVersion==1&&g.profileId=="patient");
+                var savedGuest=HotelSaveStore.Load(game.Session.SavePath).guests.Find(g=>mvp?g.mvp!=null&&g.mvp.archetype=="tourist"&&g.mvp.trait=="patient":g.profileVersion==1&&g.profileId=="patient");
                 if(!opened||savedGuest==null){Finish(false,"Guest profile not authored and saved after cooperative work");yield break;}
                 checks.Add("HOST_GUEST_CATALOGUE_SNAPSHOT_PERSISTED");
                 checks.Add("HOST_WORLD_STABLE");
@@ -130,7 +131,7 @@ namespace WorstHotel
                 if(!walkOk)yield break;
                 string response=null;game.Session.Feedback+=message=>response=message;
                 int original=game.Session.State.cash;
-                game.Session.Send(new HotelCommand("upgrade","beds"));
+                game.Session.Send(new HotelCommand("upgrade",mvp?"bed":"beds",101));
                 yield return new WaitForSecondsRealtime(.8f);
                 if(response!="Это действие подтверждает хозяин отеля."||game.Session.State.cash!=original){Finish(false,"Expected explicit host-only rejection near board, got: "+response);yield break;}
                 checks.Add("CLIENT_ADMIN_REJECTED_AT_VALID_DISTANCE");
@@ -139,6 +140,15 @@ namespace WorstHotel
                 yield return new WaitForSecondsRealtime(.6f);
                 if(response!="Это действие подтверждает хозяин отеля."||!game.Session.State.guidedOpening){Finish(false,"Client could disable guided opening or did not get explicit refusal");yield break;}
                 checks.Add("CLIENT_GUIDED_PACE_CHANGE_REJECTED");
+                if(mvp)
+                {
+                    game.LookAtForTest(HotelLayout.Target("board"));yield return new WaitForSecondsRealtime(.3f);
+                    if(game.FocusId!="board"){Finish(false,"Cannot focus MVP ping board: "+game.FocusId);yield break;}
+                    InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState(Key.F));yield return new WaitForSecondsRealtime(.15f);
+                    InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.7f);
+                    if(!game.Session.State.mvp.pings.Exists(p=>p.playerId==game.Session.LocalId&&p.target=="board")){Finish(false,"F ping did not replicate");yield break;}
+                    checks.Add("MVP_F_PING_INPUT_REPLICATED");
+                }
                 deadline=Time.realtimeSinceStartup+12;
                 while(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"&&Time.realtimeSinceStartup<deadline)yield return null;
                 if(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"){Finish(false,"Host snapshot was not received");yield break;}
@@ -159,8 +169,8 @@ namespace WorstHotel
                 checks.Add("CLIENT_CONFIRMED_WORK_AUDIO_COMPLETES_ONCE_AND_STOPS");
                 deadline=Time.realtimeSinceStartup+8;
                 while(game.Session.State.guests.Count==0&&Time.realtimeSinceStartup<deadline)yield return null;
-                var guest=game.Session.State.guests.Find(g=>g.profileId=="patient");
-                if(guest==null||guest.profileVersion!=1||guest.requestDelay<=0||guest.stayDuration<=0||!HotelDirector.ClockHeld(game.Session.State)) {Finish(false,"Active guest catalogue fields/guided clock not replicated");yield break;}
+                var guest=game.Session.State.guests.Find(g=>mvp?g.mvp!=null&&g.mvp.trait=="patient":g.profileId=="patient");
+                if(guest==null||(!mvp&&(guest.profileVersion!=1||guest.requestDelay<=0||guest.stayDuration<=0))||(mvp&&(guest.mvp.agreedTariff<=0||guest.mvp.requestDelay<=0))||!HotelDirector.ClockHeld(game.Session.State)) {Finish(false,"Active guest catalogue fields/guided clock not replicated");yield break;}
                 checks.Add("ACTIVE_GUEST_PROFILE_AND_GUIDED_CLOCK_REPLICATED");
             }
             Finish(errors.Count==0,errors.Count==0?"All smoke checks passed":"Runtime errors");

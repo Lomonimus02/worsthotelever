@@ -9,7 +9,7 @@ namespace WorstHotel
 {
     public static class HotelSaveStore
     {
-        private const int Version = 1;
+        public const int LatestSupportedVersion = 2;
         private const long MaxFileBytes = 8 * 1024 * 1024;
         private static readonly object Gate = new object();
 
@@ -20,6 +20,13 @@ namespace WorstHotel
             public int version;
             public string checksum;
             public string payload;
+        }
+
+        [Serializable]
+        private sealed class VersionHeader
+        {
+            public int version;
+            public int contentVersion;
         }
 
         // Explicit new-game action only; ordinary Save deliberately cannot replace another world.
@@ -142,27 +149,37 @@ namespace WorstHotel
                 // Serializing now freezes a consistent snapshot; caller must invoke on the host thread.
                 string payload = JsonUtility.ToJson(state);
                 Validate(JsonUtility.FromJson<HotelState>(payload));
-                var envelope = new Envelope { format = "WorstHotelSave", version = Version, payload = payload, checksum = Hash(payload) };
+                var envelope = new Envelope { format = "WorstHotelSave", version = state.version, payload = payload, checksum = Hash(payload) };
                 string json = JsonUtility.ToJson(envelope);
                 string fullPath = Path.GetFullPath(path);
                 string directory = Path.GetDirectoryName(fullPath);
                 Directory.CreateDirectory(directory);
                 string temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 string backup = fullPath + ".bak";
+                if (Directory.Exists(fullPath) || Directory.Exists(backup)) throw new IOException("Путь слота занят каталогом.");
                 bool primaryValid = false;
+                HotelState checkpoint = null;
                 if (File.Exists(fullPath))
                 {
                     HotelState previous = ReadRecoverable(fullPath);
+                    checkpoint = previous;
                     primaryValid = previous != null;
                     if (previous != null && previous.worldId != state.worldId)
                         throw new InvalidOperationException("Слот принадлежит другому отелю. Используйте отдельный файл.");
                 }
-                if (!primaryValid && File.Exists(backup))
+                // Inspect even an unused backup before replacing it: a future checkpoint or an
+                // inaccessible file is never treated as expendable/corrupt data.
+                if (File.Exists(backup))
                 {
                     HotelState previous = ReadRecoverable(backup);
                     if (previous != null && previous.worldId != state.worldId)
                         throw new InvalidOperationException("Резервная копия принадлежит другому отелю. Используйте отдельный файл.");
+                    if (checkpoint == null) checkpoint = previous;
+                    if (previous != null && previous.version > state.version)
+                        throw new InvalidOperationException("Нельзя заменить новое сохранение старой версией состояния.");
                 }
+                if (checkpoint != null && checkpoint.version > state.version)
+                    throw new InvalidOperationException("Нельзя заменить новое сохранение старой версией состояния.");
                 try
                 {
                     byte[] bytes = new UTF8Encoding(false).GetBytes(json);
@@ -172,6 +189,17 @@ namespace WorstHotel
                         stream.Flush(true);
                     }
                     Read(temporary); // Validate the actual bytes before touching a good checkpoint.
+                    if (state.version == 2 && (checkpoint != null ? checkpoint.version == 1 : File.Exists(fullPath) || File.Exists(backup)))
+                    {
+                        // Promotion preserves BOTH original files, including a corrupt primary
+                        // recovered via backup. Copies are durable and verified before replacement;
+                        // never move originals or route migration through the new-world action.
+                        string token = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'") + "-" + Guid.NewGuid().ToString("N");
+                        string archive = Path.Combine(directory, "archive", Path.GetFileName(fullPath) + "-v1-" + token);
+                        Directory.CreateDirectory(archive);
+                        if (File.Exists(fullPath)) CopyDurable(fullPath, Path.Combine(archive, "primary.json"));
+                        if (File.Exists(backup)) CopyDurable(backup, Path.Combine(archive, "backup.json"));
+                    }
                     if (File.Exists(fullPath))
                     {
                         // File.Replace is atomic on the target Windows filesystem. Do not fall back to
@@ -194,6 +222,7 @@ namespace WorstHotel
             {
                 string fullPath = Path.GetFullPath(path);
                 string backup = fullPath + ".bak";
+                if (Directory.Exists(fullPath) || Directory.Exists(backup)) throw new IOException("Путь слота занят каталогом.");
                 if (!File.Exists(fullPath) && !File.Exists(backup)) return null;
                 HotelState state = File.Exists(fullPath) ? ReadRecoverable(fullPath) : null;
                 bool recovered = state == null;
@@ -221,16 +250,38 @@ namespace WorstHotel
             var info = new FileInfo(path);
             if (info.Length < 2 || info.Length > MaxFileBytes) throw new InvalidDataException("Недопустимый размер сохранения.");
             Envelope envelope;
-            try { envelope = JsonUtility.FromJson<Envelope>(File.ReadAllText(path, Encoding.UTF8)); }
+            string json = File.ReadAllText(path, Encoding.UTF8);
+            try
+            {
+                VersionHeader header = JsonUtility.FromJson<VersionHeader>(json);
+                if (header != null && header.version > LatestSupportedVersion) throw new NotSupportedException("Сохранение создано более новой версией игры.");
+                envelope = JsonUtility.FromJson<Envelope>(json);
+            }
             catch (ArgumentException error) { throw new InvalidDataException("Неверный JSON сохранения.", error); }
+            if (envelope != null && envelope.version > LatestSupportedVersion) throw new NotSupportedException("Сохранение создано более новой версией игры.");
+            // Version evidence takes precedence over structural/checksum damage. Otherwise a
+            // future payload with another error could fall back to and overwrite an older save.
+            HotelState state = null;
+            if (envelope != null && !string.IsNullOrEmpty(envelope.payload))
+            {
+                try
+                {
+                    // Ignore all structural fields while probing state/content versions. A future
+                    // schema can change their types, so deserializing the full DTO first is unsafe.
+                    VersionHeader header = JsonUtility.FromJson<VersionHeader>(envelope.payload);
+                    if (header != null && (header.version > LatestSupportedVersion || header.contentVersion > LatestSupportedVersion))
+                        throw new NotSupportedException("Данные отеля созданы более новой версией игры.");
+                    state = JsonUtility.FromJson<HotelState>(envelope.payload);
+                }
+                catch (ArgumentException error) { throw new InvalidDataException("Неверные данные отеля.", error); }
+                RejectFutureVersions(state);
+            }
             if (envelope == null || envelope.format != "WorstHotelSave") throw new InvalidDataException("Неизвестный формат сохранения.");
-            if (envelope.version > Version) throw new NotSupportedException("Сохранение создано более новой версией игры.");
-            if (envelope.version != Version || string.IsNullOrEmpty(envelope.payload) || string.IsNullOrEmpty(envelope.checksum))
+            if ((envelope.version != 1 && envelope.version != 2) || string.IsNullOrEmpty(envelope.payload) || string.IsNullOrEmpty(envelope.checksum))
                 throw new InvalidDataException("Неподдерживаемая или неполная схема сохранения.");
             if (!string.Equals(envelope.checksum, Hash(envelope.payload), StringComparison.Ordinal)) throw new InvalidDataException("Контрольная сумма сохранения не совпадает.");
-            HotelState state;
-            try { state = JsonUtility.FromJson<HotelState>(envelope.payload); }
-            catch (ArgumentException error) { throw new InvalidDataException("Неверные данные отеля.", error); }
+            Require(state != null && state.version == envelope.version, "Версии конверта и состояния отеля не совпадают.");
+            NormalizeLegacy(state);
             Validate(state);
             return state;
         }
@@ -262,16 +313,54 @@ namespace WorstHotel
             int slot = 0;
             foreach (ItemState item in state.items)
                 if (!item.consumed && item.placedRoom == -1 && cart != null)
-                    item.position = cart.position + new Vector3(slot++ == 0 ? -.23f : .23f, .25f, 0);
+                {
+                    item.position = state.version == 2
+                        ? cart.position + new Vector3(slot % 2 == 0 ? -.23f : .23f, .25f, slot / 2 * .35f)
+                        : cart.position + new Vector3(slot == 0 ? -.23f : .23f, .25f, 0);
+                    slot++;
+                }
+        }
+
+        // Unity's inline serializer can materialize null custom objects as empty instances.
+        // The explicit schema, not nullable DTO allocation, distinguishes an old hotel.
+        internal static void NormalizeLegacy(HotelState state)
+        {
+            if (state == null || state.version != 1 || state.contentVersion < 0 || state.contentVersion > 1) return;
+            state.mvp = null;
+            if (state.rooms != null) foreach (RoomState room in state.rooms) if (room != null) room.mvp = null;
+            if (state.guests != null) foreach (GuestState guest in state.guests) if (guest != null) guest.mvp = null;
         }
 
         // Public for batch/integration diagnostics. Invalid data is rejected, never replaced by a new hotel.
         public static void Validate(HotelState state)
         {
             Require(state != null, "Отель отсутствует.");
-            if (state.version > Version) throw new NotSupportedException("Состояние отеля создано более новой версией игры.");
-            if (state.contentVersion > 1) throw new NotSupportedException("Содержимое отеля создано более новой версией игры.");
-            Require(state.version == Version, "Неподдерживаемая версия состояния отеля.");
+            RejectFutureVersions(state);
+            switch (state.version)
+            {
+                case 1: ValidateLegacy(state); return;
+                case 2: HotelMvpValidation.Validate(state); return;
+                default: throw new InvalidDataException("Неподдерживаемая версия состояния отеля.");
+            }
+        }
+
+        internal static void RejectFutureVersions(HotelState state)
+        {
+            if (state == null) return;
+            if (state.version > LatestSupportedVersion) throw new NotSupportedException("Состояние отеля создано более новой версией игры.");
+            if (state.contentVersion > LatestSupportedVersion) throw new NotSupportedException("Содержимое отеля создано более новой версией игры.");
+            if (state.version == 2 && state.mvp != null && state.mvp.schema > 2) throw new NotSupportedException("Содержимое MVP создано более новой версией игры.");
+            if (state.mvp != null && state.mvp.rngVersion > 1) throw new NotSupportedException("Генератор событий создан более новой версией игры.");
+            if (state.guests != null)
+                foreach (GuestState guest in state.guests)
+                    if (guest != null && guest.profileVersion > 1) throw new NotSupportedException("Параметры гостя созданы более новой версией игры.");
+        }
+
+        // Keep the original v1 rules separate: v2-only kinds, strings and limits must not
+        // reinterpret an in-progress legacy shift before the lifecycle promotes it.
+        private static void ValidateLegacy(HotelState state)
+        {
+            Require(state.contentVersion <= 1, "Версия содержимого не соответствует состоянию отеля.");
             Require(state.contentVersion >= 0, "Неверная версия содержимого отеля.");
             Require(!state.guidedOpening || state.contentVersion == 1, "Вводный режим недоступен в старом мире.");
             Require(state.guidedStage >= HotelDirector.Welcome && state.guidedStage <= HotelDirector.Released &&

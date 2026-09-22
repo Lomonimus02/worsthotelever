@@ -162,7 +162,8 @@ namespace WorstHotel
             Check(!HotelOperationsRules.EffectiveEquipment(sim.State, 102, "toilet"), "Utility outage ignored");
             Check(HotelOperationsRules.EffectiveEquipment(sim.State, 102, "lamp"), "Water disabled power equipment");
             Check(!HotelOperationsRules.EffectiveEquipment(sim.State, 105, "tv"), "Unowned equipment works");
-            Check(HotelOperationsRules.Tasks(sim.State).FindAll(t => t.Contains("utility_water")).Count == 1, "Shared fault task duplicated per room");
+            Check(HotelOperationsRules.Tasks(sim.State).FindAll(t => t.StartsWith("Общая подача воды:", StringComparison.Ordinal)).Count == 1, "Shared fault task duplicated per room");
+            Check(!HotelOperationsRules.Tasks(sim.State).Exists(t => t.Contains("utility_")), "Internal target ID leaked into player task labels");
             Check(before == JsonUtility.ToJson(sim.State), "Read-only queries changed world");
         }
         private static void Cleaning()
@@ -315,7 +316,9 @@ namespace WorstHotel
             Check(before == JsonUtility.ToJson(sim.State), "Preparation advanced physical wear");
             sim.State.phase = "open"; Hook(sim, "OperationsStep", 1f);
             Check(Equipment(sim, "sink").localFault && Equipment(sim, "sink").episode == 1 && room.leak, "Use did not raise canonical fault");
-            Check(room.mvp.dirt > 0 && room.mvp.binFill > 0 && room.trash && room.mvp.dirtyTowels == 1 && !room.towel, "Occupation did not create physical hygiene work");
+            Check(room.mvp.dirt > 0 && room.mvp.binFill > 0 && !room.trash && room.mvp.dirtyTowels == 1 && !room.towel, "Usage/grace period or towel turnover failed");
+            room.mvp.binFill = .349f; Hook(sim, "OperationsStep", 2f);
+            Check(room.trash, "Accumulated use never produces collectable litter");
             float tvWear = Equipment(sim, "tv").wear; Fault(sim, 0, "power"); Hook(sim, "OperationsStep", 1f);
             Check(Equipment(sim, "tv").wear == tvWear && Equipment(sim, "sink").episode == 1 && room.water > 0, "Outage wear or repeated fault episode");
             Fault(sim, 0, "water"); float water = room.water; Hook(sim, "OperationsStep", 1f);

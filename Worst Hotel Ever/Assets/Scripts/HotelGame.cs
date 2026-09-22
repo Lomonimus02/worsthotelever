@@ -54,7 +54,8 @@ namespace WorstHotel
             UI=gameObject.AddComponent<HotelUI>(); UI.Game=this;
             SetCursor();
             string[] args=Environment.GetCommandLineArgs();
-            Automated=args.Contains("-whe-smoke")||args.Contains("-whe-session-tests");
+            Automated=args.Contains("-whe-smoke")||args.Contains("-whe-session-tests")||args.Contains("-whe-path-check");
+            Session.UseLegacyFixture = Automated && args.Contains("-whe-legacy-fixture");
             Debug.Log("WHE_INPUT keyboard="+(Keyboard.current!=null)+" mouse="+(Mouse.current!=null));
             int portIndex=Array.IndexOf(args,"-whe-port"); ushort port=7777;
             if(portIndex>=0 && portIndex+1<args.Length) ushort.TryParse(args[portIndex+1],out port);
@@ -62,7 +63,7 @@ namespace WorstHotel
             int clientIndex=Array.IndexOf(args,"-whe-client");
             if(clientIndex>=0 && clientIndex+1<args.Length) { Session.Join(args[clientIndex+1],port,""); Panel=""; }
             if(args.Contains("-whe-smoke")) gameObject.AddComponent<HotelSmokeTest>();
-            if(args.Contains("-whe-session-tests")) gameObject.AddComponent<HotelSessionSmokeTest>();
+            if(args.Contains("-whe-session-tests")||args.Contains("-whe-path-check")) gameObject.AddComponent<HotelSessionSmokeTest>();
         }
         void CreatePlayer()
         {
@@ -127,6 +128,8 @@ namespace WorstHotel
             if(InputActive && keyboard!=null) {
                 if(!Automated)Look(); Move(); Focus();
                 if(keyboard.eKey.wasPressedThisFrame) Interact();
+                if(Session.State.mvp != null && (keyboard.fKey.wasPressedThisFrame || (Mouse.current?.middleButton.wasPressedThisFrame ?? false)) && FocusId != "")
+                    Session.Send(new HotelCommand("ping", FocusId));
                 if(keyboard.eKey.wasReleasedThisFrame) StopWork();
                 if(workTarget!="" && (FocusId!=workTarget || !keyboard.eKey.isPressed)) StopWork();
                 if(workTarget!="" && Time.unscaledTime>nextHeartbeat) {
@@ -169,7 +172,7 @@ namespace WorstHotel
             cameraBob=Mathf.Lerp(cameraBob,Bob&&input.sqrMagnitude>.01f?Mathf.Sin(Time.unscaledTime*10)*.018f:0,Time.unscaledDeltaTime*10);
             View.transform.localPosition=new Vector3(0,1.65f+cameraBob,0);
             if(input.sqrMagnitude>.1f && Controller.velocity.sqrMagnitude>.1f && Controller.isGrounded && Time.unscaledTime>stepAt) { stepAt=Time.unscaledTime+.46f; Audio.Play("step"); }
-            if(player.transform.position.y < -3 || Mathf.Abs(player.transform.position.x)>8.2f || player.transform.position.z>17 || player.transform.position.z < -7.7f) Teleport(HotelLayout.Spawn);
+            if(player.transform.position.y < -3 || Mathf.Abs(player.transform.position.x)>8.2f || player.transform.position.z>HotelLayout.NorthBoundary || player.transform.position.z < -7.7f) Teleport(HotelLayout.Spawn);
         }
         public void Teleport(Vector3 position)
         {
@@ -199,22 +202,27 @@ namespace WorstHotel
             if(FocusId.StartsWith("door_")) { OpenPanel("rooms"); return; }
             if(FocusId.StartsWith("guest_")) { OpenPanel("reception"); return; }
             if(Session.State.items.Any(i=>i.id==FocusId&&!i.consumed)) Session.Send(new HotelCommand("pickup",FocusId));
-            else if(FocusId.StartsWith("sink_")||FocusId.StartsWith("water_")||FocusId.StartsWith("bed_")||FocusId.StartsWith("trash_")) {
+            else if(FocusId.StartsWith("sink_")||FocusId.StartsWith("water_")||FocusId.StartsWith("bed_")||FocusId.StartsWith("trash_")||
+                (Session.State.mvp != null && (FocusId=="coffee"||FocusId.StartsWith("utility_")||FocusId.StartsWith("toilet_")||
+                FocusId.StartsWith("tv_")||FocusId.StartsWith("lamp_")||FocusId.StartsWith("clean_")||FocusId.StartsWith("dirtytowel_")))) {
                 workTarget=FocusId;feedback.BeginWork();Session.Send(new HotelCommand("beginwork",workTarget));nextHeartbeat=0;
             } else Session.Send(new HotelCommand("interact",FocusId));
         }
         void StopWork() { if(workTarget!="") { feedback.CancelWork();Session.Send(new HotelCommand("cancelwork")); } workTarget=""; }
         void UpdateCarry()
         {
-            string kind=Held?.kind??"";
-            if(kind!=carryKind) {
+            ItemState carried = Held;
+            string kind=carried?.kind??"";
+            string visualKey=kind+"|"+(carried?.size??"")+"|"+(carried?.condition??"");
+            if(visualKey!=carryKind) {
                 if(carry!=null)Destroy(carry);
-                carryKind=kind;
+                carryKind=visualKey;
                 if(kind!="") {
-                    carry=HotelWorld.MakeItem(kind); carry.name="Held "+kind; carry.transform.SetParent(handAnchor,false);
+                    carry=HotelWorld.MakeItem(kind,carried.size,carried.condition); carry.name="Held "+kind; carry.transform.SetParent(handAnchor,false);
                     carry.transform.localPosition=Vector3.zero; carry.transform.localRotation=Quaternion.Euler(0,15,0);
                     if(kind=="mop")carry.transform.localRotation=Quaternion.Euler(-25,0,18);
                     if(kind=="cart")carry.transform.localScale*=.55f;
+                    if(kind=="toolbox")carry.transform.localScale*=.72f;
                     foreach(var c in carry.GetComponentsInChildren<Collider>()) c.enabled=false;
                     foreach(var r in carry.GetComponentsInChildren<Renderer>())r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
                 }
@@ -245,7 +253,7 @@ namespace WorstHotel
             PlayerPrefs.SetInt("handMotion",HandMotion?1:0);PlayerPrefs.SetInt("ambientSound",AmbientSound?1:0);PlayerPrefs.Save();
         }
         public static string ItemName(string kind) {
-            switch(kind){case "bag":return "Чемодан";case "toolbox":return "Инструменты";case "mop":return "Швабра";case "linen":return "Чистое бельё";case "dirtylinen":return "Грязное бельё";case "towel":return "Полотенце";case "trashbag":return "Мешок мусора";case "cart":return "Тележка";default:return kind;}
+            switch(kind){case "bag":return "Чемодан";case "toolbox":return "Инструменты";case "mop":return "Швабра";case "plunger":return "Вантуз";case "coffee":return "Кофе";case "linen":return "Чистое бельё";case "dirtylinen":return "Грязное бельё";case "towel":return "Полотенце";case "trashbag":return "Мешок мусора";case "cart":return "Тележка";default:return kind;}
         }
     }
 }

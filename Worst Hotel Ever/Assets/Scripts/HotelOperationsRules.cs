@@ -110,8 +110,8 @@ namespace WorstHotel
         {
             var tasks = new List<string>();
             if (state == null || state.mvp == null) return tasks;
-            if (state.mvp.utilities.waterFault) tasks.Add("Общая подача воды: починить узел utility_water ящиком инструментов");
-            if (state.mvp.utilities.powerFault) tasks.Add("Общее электричество: починить узел utility_power ящиком инструментов");
+            if (state.mvp.utilities.waterFault) tasks.Add("Общая подача воды: починить водяной узел у склада ящиком инструментов");
+            if (state.mvp.utilities.powerFault) tasks.Add("Общее электричество: починить электрощит у склада ящиком инструментов");
             foreach (RoomState room in state.rooms)
             {
                 if (room.mvp == null || !room.mvp.owned) continue;
@@ -120,9 +120,9 @@ namespace WorstHotel
                 if (room.guestId == 0 && room.bed == 0) tasks.Add(title + "застелить чистое бельё");
                 if (!room.towel) tasks.Add(title + "доставить чистое полотенце");
                 if (room.mvp.dirtyTowels > 0) tasks.Add(title + "собрать использованные полотенца → приёмник (" + room.mvp.dirtyTowels + ")");
-                if (room.mvp.dirt > .001f) tasks.Add(title + "вымыть грязный пол шваброй");
+                if (room.mvp.dirt > .05f) tasks.Add(title + "вымыть грязный пол шваброй");
                 if (room.water > .001f) tasks.Add(title + "убрать воду шваброй");
-                if (room.trash || room.mvp.binFill > .001f) tasks.Add(title + (room.mvp.binFill >= .9f ? "вынести переполненную корзину" : "собрать мусор") + " → контейнер");
+                if (room.trash || room.mvp.binFill >= .35f) tasks.Add(title + (room.mvp.binFill >= .9f ? "вынести переполненную корзину" : "собрать мусор") + " → контейнер");
                 foreach (MvpEquipmentState equipment in room.mvp.equipment)
                 {
                     if (!equipment.installed || !equipment.localFault) continue;
@@ -139,7 +139,7 @@ namespace WorstHotel
                     if (!bag.consumed && bag.kind == "bag" && bag.ownerGuest == guest.id && bag.placedRoom > 0 && bag.placedRoom != guest.room)
                         tasks.Add("Исправить багаж: " + guest.name + ", чемодан оставлен в " + bag.placedRoom + (guest.room == 0 ? "; сначала зарегистрировать гостя" : " → " + guest.room));
             }
-            if (state.mvp.requests.Exists(r => r.kind == "coffee" && r.status == "open")) tasks.Add("Приготовить кофе у стойки coffee, затем отнести заказавшему гостю");
+            if (state.mvp.requests.Exists(r => r.kind == "coffee" && r.status == "open")) tasks.Add("Приготовить кофе у кофейной стойки в лобби, затем отнести заказавшему гостю");
             return tasks;
         }
     }

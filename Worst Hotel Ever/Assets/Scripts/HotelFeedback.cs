@@ -9,10 +9,11 @@ namespace WorstHotel
     // Store scalars, not references: host state is mutated in place while client state is replaced.
     public sealed class HotelFeedback
     {
-        string world, held, work, cargoA="", cargoB="";
-        int day, nextGuest, bed;
-        bool initialized, leak, trash, suppressWork;
-        float water;
+        string world, held, work;
+        readonly string[] cargo = new string[4], previousCargo = new string[4];
+        int day, nextGuest, bed, dirtyTowels;
+        bool initialized, leak, trash, suppressWork, equipmentFault, utilityFault;
+        float water, dirt;
         ulong playerId;
         public void Reset(){initialized=false;suppressWork=false;world=null;held=work="";}
         public void BeginWork(){suppressWork=false;}
@@ -23,20 +24,22 @@ namespace WorstHotel
             if(player==null){Reset();return HotelCue.None;}
             bool baseline=!initialized||world!=state.worldId||day!=state.day||playerId!=localId;
             bool cart=state.items.Exists(i=>i.id==player.held&&i.kind=="cart"&&!i.consumed&&i.holder==(long)localId);
-            string first="",second="";
+            Array.Clear(cargo,0,cargo.Length);
+            int cargoCount=0;
             if(cart)foreach(var item in state.items)
                 if(item.kind=="bag"&&!item.consumed&&item.placedRoom==-1)
                 {
-                    if(first=="")first=item.id;
-                    else if(string.CompareOrdinal(item.id,first)<0){second=first;first=item.id;}
-                    else second=item.id;
+                    if(cargoCount<cargo.Length)cargo[cargoCount++]=item.id;
                 }
+            Array.Sort(cargo,StringComparer.Ordinal);
+            bool cargoChanged=false;
+            for(int i=0;i<cargo.Length;i++)if(cargo[i]!=previousCargo[i])cargoChanged=true;
             HotelCue cue=HotelCue.None;
             if(!baseline)
             {
                 if(state.nextGuest>nextGuest)cue|=HotelCue.Arrival;
                 if((player.held??"")!=held)cue|=HotelCue.Item;
-                else if(cart&&(first!=cargoA||second!=cargoB))cue|=HotelCue.Item;
+                else if(cart&&cargoChanged)cue|=HotelCue.Item;
                 if(!string.IsNullOrEmpty(work)&&work!=player.workTarget)
                 {
                     var room=Room(state,work);
@@ -45,14 +48,35 @@ namespace WorstHotel
                         (work.StartsWith("sink_")&&leak&&!room.leak)||
                         (work.StartsWith("trash_")&&trash&&!room.trash)||
                         (work.StartsWith("water_")&&water>0&&room.water<=.001f));
+                    if(state.mvp!=null)
+                    {
+                        if(work=="utility_water")changed=utilityFault&&!state.mvp.utilities.waterFault;
+                        else if(work=="utility_power")changed=utilityFault&&!state.mvp.utilities.powerFault;
+                        else if(work=="coffee")changed=player.held!=held&&state.items.Exists(i=>i.id==player.held&&i.kind=="coffee"&&!i.consumed);
+                        else if(room?.mvp!=null)
+                        {
+                            string kind=work.Substring(0,work.LastIndexOf('_'));
+                            var equipment=room.mvp.equipment.Find(e=>e.kind==kind);
+                            if(equipment!=null)changed=equipmentFault&&!equipment.localFault;
+                            else if(kind=="clean")changed=dirt>.05f&&room.mvp.dirt<=.05f;
+                            else if(kind=="dirtytowel")changed=dirtyTowels>room.mvp.dirtyTowels;
+                        }
+                    }
                     if(changed)cue|=HotelCue.Complete;
                 }
             }
             initialized=true;world=state.worldId;day=state.day;playerId=localId;
             held=player.held??"";work=suppressWork?"":player.workTarget??"";nextGuest=state.nextGuest;
-            cargoA=first;cargoB=second;
+            Array.Copy(cargo,previousCargo,cargo.Length);
             var current=Room(state,work);
             if(current!=null){bed=current.bed;leak=current.leak;trash=current.trash;water=current.water;}
+            if(current?.mvp!=null)
+            {
+                dirt=current.mvp.dirt;dirtyTowels=current.mvp.dirtyTowels;
+                string kind=work.Substring(0,work.LastIndexOf('_'));
+                equipmentFault=current.mvp.equipment.Find(e=>e.kind==kind)?.localFault??false;
+            }
+            if(state.mvp!=null)utilityFault=work=="utility_water"?state.mvp.utilities.waterFault:work=="utility_power"&&state.mvp.utilities.powerFault;
             return cue;
         }
         static RoomState Room(HotelState state,string target)
@@ -68,6 +92,9 @@ namespace WorstHotel
             if(target.StartsWith("sink_"))return "repair";
             if(target.StartsWith("water_"))return "mop";
             if(target.StartsWith("trash_"))return "trash";
+            if(target.StartsWith("tv_")||target.StartsWith("lamp_")||target.StartsWith("utility_"))return "repair";
+            if(target.StartsWith("toilet_")||target.StartsWith("clean_"))return "mop";
+            if(target.StartsWith("dirtytowel_")||target=="coffee")return "cloth";
             return "";
         }
         public static void HandPose(string target,float time,bool enabled,out Vector3 offset,out Quaternion rotation)

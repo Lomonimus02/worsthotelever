@@ -267,10 +267,11 @@ namespace WorstHotel
             readonly Scene scene;
             internal WorldFixture()
             {
-                scene = SceneManager.CreateScene("HotelMvpWorldTests-" + Guid.NewGuid().ToString("N"), new CreateSceneParameters(LocalPhysicsMode.Physics3D));
+                scene = EditorSceneManager.NewPreviewScene();
                 try
                 {
                     SceneManager.MoveGameObjectToScene(Host, scene); PhysicsWorld = scene.GetPhysicsScene();
+                    Assert(PhysicsWorld.IsValid() && !PhysicsWorld.Equals(Physics.defaultPhysicsScene), "Preview physics must be isolated from the editor scene");
                     World = Host.AddComponent<HotelWorld>(); World.Build();
                 }
                 catch { Dispose(); throw; }
@@ -290,7 +291,7 @@ namespace WorstHotel
             public void Dispose()
             {
                 if (Host != null) UnityEngine.Object.DestroyImmediate(Host);
-                if (scene.IsValid() && scene.isLoaded) EditorSceneManager.CloseScene(scene, true);
+                if (scene.IsValid() && scene.isLoaded) EditorSceneManager.ClosePreviewScene(scene);
             }
         }
     }

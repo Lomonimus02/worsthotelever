@@ -38,15 +38,15 @@ namespace WorstHotel
 
         public static HotelHint GetHint(HotelState state, ulong localPlayerId)
         {
-            if (state == null || state.tutorialSkipped || state.day > (state.contentVersion == 1 ? 2 : 1) ||
+            if (state == null || state.tutorialSkipped || state.day > (state.contentVersion == 1 || state.mvp != null ? 2 : 1) ||
                 (state.contentVersion == 0 && (state.tutorialFlags & (int)HotelTutorialSkill.All) == (int)HotelTutorialSkill.All) ||
                 state.players == null || state.rooms == null || state.guests == null || state.items == null) return null;
             PlayerState player = state.players.Find(p => p.id == localPlayerId);
             if (player == null) return null;
 
             ItemState held = state.items.Find(i => i.id == player.held && !i.consumed && i.holder == (long)localPlayerId);
-            HotelHint hint = held == null ? FreeHandsHint(state, player) : HeldHint(state, player, held);
-            if (state.contentVersion == 1 && state.day == 2) hint.title = "День 2 · " + hint.title;
+            HotelHint hint = state.mvp != null ? MvpHint(state, player, held) : held == null ? FreeHandsHint(state, player) : HeldHint(state, player, held);
+            if ((state.contentVersion == 1 || state.mvp != null) && state.day == 2) hint.title = "День 2 · " + hint.title;
             int bits = state.tutorialFlags & (int)HotelTutorialSkill.All;
             int completed = 0;
             while (bits != 0) { completed += bits & 1; bits >>= 1; }
@@ -242,8 +242,8 @@ namespace WorstHotel
         {
             GuestState owner = state.guests.Find(g => g.id == bag.ownerGuest);
             if (owner == null) return null;
-            if (CanDeliverBag(state, bag)) return Hint("Багаж: " + owner.name + " → " + owner.room, "Отнесите чемодан к месту багажа в номере " + owner.room + " и нажмите E. Доставка в чужой номер не принимается.", "bag_" + owner.room);
-            if (owner.stage == "queue") return Hint("Сначала зарегистрируйте владельца", owner.name + " ещё ждёт номер. На стойке нажмите E и заселите гостей по порядку очереди; затем появится место для багажа.", "desk");
+            if (CanDeliverBag(state, bag)) return Hint("Багаж: " + owner.name + " → " + owner.room, "Отнесите чемодан к месту багажа в номере " + owner.room + " и нажмите E. " + (state.mvp == null ? "Доставка в чужой номер не принимается." : "Чужой номер вызовет жалобу: перенесите багаж к его владельцу."), "bag_" + owner.room);
+            if (owner.stage == "queue") return Hint("Сначала зарегистрируйте владельца", owner.name + " ещё ждёт номер. На стойке нажмите E и " + (state.mvp == null ? "заселите гостей по порядку очереди" : "явно выберите этого гостя, затем подходящий номер") + "; затем появится место для багажа.", "desk");
             return null;
         }
 
@@ -271,7 +271,7 @@ namespace WorstHotel
             foreach (RoomState room in state.rooms)
             {
                 string target = kind + "_" + room.number;
-                if (!eligible(room) || state.players.Exists(p => p.id != player.id && p.workTarget == target)) continue;
+                if (room.mvp?.owned == false || !eligible(room) || state.players.Exists(p => p.id != player.id && p.workTarget == target)) continue;
                 float distance = target == player.workTarget ? -1 : (HotelLayout.Target(target) - player.position).sqrMagnitude;
                 if (distance >= best) continue;
                 best = distance;
@@ -298,6 +298,113 @@ namespace WorstHotel
         private static HotelHint ReopenRoom(PlayerState player)
         {
             return Hint("Нужен открытый номер", player.id == 0 ? "Подойдите к доске, нажмите E и откройте подходящий номер для продаж. Если он грязный, подготовьте кровать и устраните аварии." : "Попросите хозяина открыть свободный номер для продаж на доске. Вы можете помочь с бельём и ремонтом.", "board");
+        }
+        private static HotelHint MvpHint(HotelState state, PlayerState player, ItemState held)
+        {
+            if (!string.IsNullOrEmpty(player.workTarget))
+                return Hint("Продолжайте работу", HotelPresentation.FocusText(state, player.id, player.workTarget, "Удерживайте E до завершения."), player.workTarget);
+            if (held != null)
+            {
+                if (held.kind == "dirtytowel" || held.kind == "towel" && held.condition == "dirty") return Hint("Грязное полотенце — в приёмник", "У приёмника на складе нажмите E. Чистое полотенце возьмите с полки.", "hamper");
+                if (held.kind == "cart")
+                {
+                    foreach (var cargo in state.items)
+                        if (!cargo.consumed && cargo.kind == "bag" && cargo.placedRoom == -1 && CanDeliverBag(state, cargo)) return BagDestination(state, cargo);
+                    var nextBag = NearestItem(state, player, i => i.kind == "bag" && WaitingForBag(state, i) && HotelOperationsRules.CartLoadBlockReason(state, i) == "");
+                    if (nextBag != null) return Hint("Загрузите багаж", "E у чемодана — загрузить. Всего четыре места; большой чемодан занимает два. Затем E у подставки владельца.", nextBag.id);
+                    return PutDown("Нет доступного багажа для загрузки. Загруженные чемоданы сохранятся на тележке.");
+                }
+                if (held.kind == "coffee")
+                {
+                    var request = state.mvp.requests.Find(r => r.status == "open" && r.kind == "coffee" && state.guests.Exists(g => g.id == r.guestId && (g.stage == "walking" || g.stage == "staying")));
+                    var guest = request == null ? null : state.guests.Find(g => g.id == request.guestId);
+                    return guest == null ? PutDown("Сейчас никто не просит кофе. Чашку можно оставить рядом.") : Hint("Кофе для " + guest.name, "Отнесите чашку к столику в номере " + guest.room + " и нажмите E.", "coffee_" + guest.room);
+                }
+                if (held.kind == "toolbox" || held.kind == "plunger")
+                {
+                    string target = MvpRepairTarget(state, player, held.kind);
+                    if (target != "") return Hint("Восстановите оборудование", HotelPresentation.FocusText(state, player.id, target, "Удерживайте E."), target);
+                    return PutDown("Для этого инструмента сейчас нет свободной поломки.");
+                }
+                if (held.kind == "mop" && NearestRoom(state, player, r => r.water > .001f, "water") == null)
+                {
+                    var dirty = NearestRoom(state, player, r => r.mvp != null && r.mvp.dirt > .001f, "clean");
+                    if (dirty != null) return Hint("Уберите грязь: " + dirty.number, "Со шваброй удерживайте E на грязном участке пола. Лужи убираются отдельно.", "clean_" + dirty.number);
+                }
+                return HeldHint(state, player, held);
+            }
+            if (state.phase == "summary") return Hint("Итоги и следующий день", player.id == 0 ? "На стойке откройте итоги и перейдите к подготовке. Многодневные гости останутся; грязь и поломки сохранятся." : "Хозяин подводит итоги на стойке. Многодневные гости продолжают проживание.", "desk");
+            if (state.phase == "closing") return Hint("Завершите обслуживание", "Примите оплату у выезжающих. Хозяин подводит итоги у стойки; продолжающие проживание гости останутся.", "desk");
+            if (state.phase == "preparation")
+            {
+                var prepare = PrepareRoomHint(state, player, true);
+                if (prepare != null) return prepare;
+                return Hint("Подготовьте новую смену", "На доске: цены, прогноз, восемь улучшений и номера 105–106. Когда команда готова, хозяин открывает отель у стойки.", "board");
+            }
+            var guided = GuidedHint(state, player);
+            if (guided != null) return guided;
+            var checkout = state.guests.Find(g => g.stage == "checkout" && !g.paid);
+            if (checkout != null) return Hint("Гость ждёт расчёта", checkout.name + ": подойдите к стойке и примите оплату во вкладке «Гости».", "desk");
+            var queue = state.guests.Find(g => g.stage == "queue");
+            if (queue != null) return Hint("Выберите гостя для заселения", "На стойке откройте «Гости», выберите человека, затем номер. Проверьте вместимость и требования; причина запрета показана рядом.", "desk");
+            foreach (var request in state.mvp.requests)
+            {
+                if (request.status != "open") continue;
+                var guest = state.guests.Find(g => g.id == request.guestId && (g.stage == "walking" || g.stage == "staying"));
+                if (guest == null) continue;
+                if (request.kind == "towel") return SupplyHint(state, player, "towel", guest.room, true);
+                if (request.kind == "coffee") return Hint("Гость просит кофе: " + guest.room, "Освободите руки. В лобби удерживайте E у кофейной станции, затем доставьте чашку к столику гостя.", "coffee");
+                if (request.kind == "cleaning")
+                {
+                    HotelHint cleaning = MvpCleaningHint(state, player, guest.room);
+                    if (cleaning != null) return cleaning;
+                }
+            }
+            var bag = NearestItem(state, player, i => i.kind == "bag" && CanDeliverBag(state, i) && !state.guests.Find(g => g.id == i.ownerGuest).luggageDelivered);
+            if (bag != null) return Hint("Доставьте собственный багаж гостя", "Проверьте бирку чемодана. Чужой багаж нужно забрать и перенести в правильный номер.", bag.id);
+            string repair = MvpRepairTarget(state, player, "toolbox");
+            if (repair != "") return MvpToolHint(state, player, "toolbox", repair);
+            repair = MvpRepairTarget(state, player, "plunger");
+            if (repair != "") return MvpToolHint(state, player, "plunger", repair);
+            var towelRoom = NearestRoom(state, player, r => r.mvp != null && r.mvp.dirtyTowels > 0, "dirtytowel");
+            if (towelRoom != null) return Hint("Соберите грязные полотенца", "Свободными руками удерживайте E у полотенец в № " + towelRoom.number + ". Отнесите их в приёмник.", "dirtytowel_" + towelRoom.number);
+            var dirtyRoom = NearestRoom(state, player, r => r.mvp != null && r.mvp.dirt > .001f, "clean");
+            if (dirtyRoom != null) return MvpToolHint(state, player, "mop", "clean_" + dirtyRoom.number);
+            return RepairHint(state, player) ?? PrepareRoomHint(state, player, false) ?? Hint("Отель под контролем", "Tab — номера, гости, операции и расписание. F или средняя кнопка мыши отмечает объект для напарника.", "");
+        }
+        private static HotelHint MvpToolHint(HotelState state, PlayerState player, string kind, string target)
+        {
+            ItemState tool = NearestItem(state, player, i => i.kind == kind);
+            return tool == null ? Hint("Нужен инструмент", HotelPresentation.ItemLabel(kind) + " у коллеги. Отметьте задачу кнопкой F и договоритесь о работе.", target) :
+                Hint("Возьмите инструмент", HotelPresentation.ItemLabel(kind) + ": E — взять, затем удерживайте E у цели. Tab показывает все задачи.", tool.id);
+        }
+        private static HotelHint MvpCleaningHint(HotelState state, PlayerState player, int number)
+        {
+            RoomState room = state.rooms.Find(r => r.number == number && r.mvp?.owned == true);
+            if (room == null) return null;
+            if (room.mvp.dirtyTowels > 0 && !state.players.Exists(p => p.id != player.id && p.workTarget == "dirtytowel_" + number))
+                return Hint("Уборка: использованные полотенца", "В № " + number + " удерживайте E у грязных полотенец. Затем отнесите их в приёмник.", "dirtytowel_" + number);
+            if ((room.trash || room.mvp.binFill > .05f) && !state.players.Exists(p => p.id != player.id && p.workTarget == "trash_" + number))
+                return Hint("Уборка: вынесите мусор", "Свободными руками удерживайте E у корзины № " + number + ", затем отнесите мешок в бак.", "trash_" + number);
+            if (room.water > .01f && !state.players.Exists(p => p.id != player.id && p.workTarget == "water_" + number))
+                return MvpToolHint(state, player, "mop", "water_" + number);
+            if (room.mvp.dirt > .05f && !state.players.Exists(p => p.id != player.id && p.workTarget == "clean_" + number))
+                return MvpToolHint(state, player, "mop", "clean_" + number);
+            return null;
+        }
+        private static string MvpRepairTarget(HotelState state, PlayerState player, string tool)
+        {
+            if (tool == "toolbox")
+            {
+                if (state.mvp.utilities.waterFault && !state.players.Exists(p => p.id != player.id && p.workTarget == "utility_water")) return "utility_water";
+                if (state.mvp.utilities.powerFault && !state.players.Exists(p => p.id != player.id && p.workTarget == "utility_power")) return "utility_power";
+            }
+            foreach (string kind in tool == "plunger" ? new[] { "toilet" } : new[] { "sink", "tv", "lamp" })
+            {
+                var room = NearestRoom(state, player, r => HotelOperationsRules.Equipment(state, r.number, kind)?.localFault == true, kind);
+                if (room != null) return kind + "_" + room.number;
+            }
+            return "";
         }
         private static HotelHint PutDown(string reason) { return Hint("Освободите руки", reason + " Q — положить предмет рядом на доступный пол.", ""); }
         private static HotelHint Hint(string title, string body, string target)

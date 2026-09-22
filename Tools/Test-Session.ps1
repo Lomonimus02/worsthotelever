@@ -1,3 +1,4 @@
+param([switch]$Mvp)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
@@ -6,7 +7,8 @@ if (!(Test-Path -LiteralPath $exePath)) { throw 'Build the Windows player first.
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 function Start-Scenario([string]$Scenario, [string]$Connection) {
     $logPath = Join-Path $resultsPath "$Scenario-player.log"
-    $arguments = "-whe-session-tests -whe-case $Scenario $Connection -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
+    $fixture = if ($Mvp) { '' } else { '-whe-legacy-fixture' }
+    $arguments = "-whe-session-tests $fixture -whe-case $Scenario $Connection -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
     Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 }
 function Complete-Scenarios($Runs, $Names, $Started) {
@@ -22,6 +24,7 @@ function Complete-Scenarios($Runs, $Names, $Started) {
             $path = Join-Path $resultsPath "$name-session.txt"
             if (!(Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).LastWriteTime -lt $Started) { throw "Missing/stale report: $name" }
             $report = Get-Content -LiteralPath $path
+            if ($Mvp) { Copy-Item -LiteralPath $path -Destination (Join-Path $resultsPath "mvp-$name-session.txt") -Force }
             Write-Output "$name result:"
             $report
             if ($report[0] -ne 'PASS') { throw "Failed scenario: $name" }

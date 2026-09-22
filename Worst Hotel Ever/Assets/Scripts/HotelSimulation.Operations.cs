@@ -324,7 +324,9 @@ namespace WorstHotel
                 float usage = Mathf.Clamp(guest.mvp.messRate * guest.mvp.partySize, .25f, 4);
                 room.mvp.dirt = Mathf.Min(1, room.mvp.dirt + dt * .0007f * usage);
                 room.mvp.binFill = Mathf.Min(1, room.mvp.binFill + dt * .0008f * usage);
-                room.trash = room.mvp.binFill > .001f;
+                // A trace of use is not immediately a dirty-room incident. Existing litter
+                // remains until collected; newly occupied clean rooms get a useful grace period.
+                room.trash = room.trash || room.mvp.binFill >= .35f;
                 if (room.towel && room.mvp.dirtyTowels < 12)
                 {
                     room.mvp.towelUseProgress = Mathf.Min(1, room.mvp.towelUseProgress + dt * usage / 300f);
@@ -348,8 +350,10 @@ namespace WorstHotel
             if (occupied > 0 && !paused)
             {
                 MvpUtilityState utility = State.mvp.utilities;
-                if (!utility.waterFault) utility.waterWear = Mathf.Min(1, utility.waterWear + dt * occupied * .000025f);
-                if (!utility.powerFault) utility.powerWear = Mathf.Min(1, utility.powerWear + dt * occupied * .00002f);
+                // Count occupied-room seconds, not calendar days. Shared maintenance should
+                // become visible within the opening ten-day loop without a daily forced outage.
+                if (!utility.waterFault) utility.waterWear = Mathf.Min(1, utility.waterWear + dt * occupied * .00009f);
+                if (!utility.powerFault) utility.powerWear = Mathf.Min(1, utility.powerWear + dt * occupied * .000065f);
                 if (utility.waterWear >= 1) TryRaiseFault(0, "water");
                 if (utility.powerWear >= 1) TryRaiseFault(0, "power");
             }

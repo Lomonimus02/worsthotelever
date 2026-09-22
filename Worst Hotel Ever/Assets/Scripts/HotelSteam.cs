@@ -20,7 +20,7 @@ namespace WorstHotel
     {
         // Keep standalone Steam validation independent of the rest of the game assembly.
         // HotelPresentationTests asserts equality with the session protocol.
-        public const string Protocol = "WHE-premvp-3";
+        public const string Protocol = "WHE-mvp-4";
         const string ProtocolKey = "whe.protocol", HostKey = "whe.host", ReadyKey = "whe.ready";
         const string Unsupported = "Steam поддерживается только в Windows x64. Доступно подключение по IP.";
         public static string LastError { get; private set; } = "";

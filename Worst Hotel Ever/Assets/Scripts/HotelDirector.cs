@@ -11,7 +11,7 @@ namespace WorstHotel
 
         public static bool IsGuided(HotelState state)
         {
-            return state != null && state.contentVersion == 1 && state.guidedOpening && state.day == 1 && state.guidedStage < Released;
+            return state != null && (state.contentVersion == 1 || state.contentVersion == 2) && state.guidedOpening && state.day == 1 && state.guidedStage < Released;
         }
         public static bool ClockHeld(HotelState state) { return IsGuided(state) && state.phase == "open"; }
 
@@ -81,6 +81,7 @@ namespace WorstHotel
             if (state.contentVersion == 0 || state.phase != "open") return;
             if (!IsGuided(state))
             {
+                if (state.mvp != null) return; // MVP wear/events own non-tutorial failures.
                 if (!state.dailyLeakIssued && !state.rooms.Exists(r => r.leak))
                 {
                     GuestState guest = state.guests.Find(g => g.stage == "staying" && g.stay >= 80);
@@ -132,6 +133,12 @@ namespace WorstHotel
             RoomState room = state.rooms.Find(r => r.number == guest.room && r.guestId == guest.id);
             if (room == null) return;
             room.leak = true;
+            if (room.mvp != null)
+            {
+                MvpEquipmentState sink = room.mvp.equipment.Find(e => e.kind == "sink");
+                if (sink != null && !sink.localFault) { sink.localFault = true; sink.episode++; }
+                room.water = Math.Max(room.water, .12f);
+            }
             state.dailyLeakIssued = true;
             if (!guest.memories.Contains("Раковина начала протекать")) guest.memories.Add("Раковина начала протекать");
             if (guided)

@@ -8,7 +8,7 @@ namespace WorstHotel
     public sealed class HotelAudio : MonoBehaviour
     {
         readonly Dictionary<string,AudioClip> clips=new Dictionary<string,AudioClip>();
-        readonly AudioSource[] leaks=new AudioSource[4];
+        readonly AudioSource[] leaks=new AudioSource[6];
         AudioSource effects, workSource;
         string workKind="";
         public int CueCount {get;private set;}
@@ -26,7 +26,7 @@ namespace WorstHotel
                 var clip=AudioClip.Create("WHE original "+kind,data.Length,1,22050,false);clip.SetData(data,0);clips.Add(kind,clip);
             }
             effects=Source("Local effects",false);workSource=Source("Confirmed work",false);workSource.loop=true;
-            for(int i=0;i<4;i++)
+            for(int i=0;i<leaks.Length;i++)
             {
                 var source=Source("Leak "+(101+i),true);source.loop=true;source.clip=clips["leak"];
                 source.transform.position=HotelLayout.RoomTarget("sink",101+i);leaks[i]=source;
@@ -53,10 +53,10 @@ namespace WorstHotel
                 workSource.clip=kind==""?null:clips[kind];
                 if(kind!="")workSource.Play();
             }
-            for(int i=0;i<4;i++)
+            for(int i=0;i<leaks.Length;i++)
             {
                 var room=state.rooms.Find(r=>r.number==101+i);
-                bool active=ambient&&room!=null&&room.leak;
+                bool active=ambient&&room!=null&&(room.mvp==null||room.mvp.owned)&&room.leak&&(state.mvp==null||!state.mvp.utilities.waterFault);
                 if(active&&!leaks[i].isPlaying)leaks[i].Play();
                 else if(!active&&leaks[i].isPlaying)leaks[i].Stop();
             }
