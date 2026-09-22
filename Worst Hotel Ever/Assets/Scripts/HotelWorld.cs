@@ -126,7 +126,7 @@ namespace WorstHotel
                         guests.Add(guest.id, visual);
                     }
                     visual.figure.Pose(guest.position, null, 0, false, false);
-                    visual.figure.annoyed = guest.satisfaction < 45;
+                    visual.figure.React(guest.stage, guest.satisfaction, guest.towelRequested);
                     string caption = GuestCaption(guest);
                     if (caption != visual.previousCaption)
                     {
@@ -653,6 +653,7 @@ namespace WorstHotel
             EnsureAssets();
             Transform p = Group(null, employee ? "Hotel employee" : "Hotel guest");
             HotelFigure rig = p.gameObject.AddComponent<HotelFigure>();
+            rig.employee = employee;
             int variation = (seed & int.MaxValue) % 4;
             Ink skin = variation == 2 ? Ink.SkinDark : Ink.Skin;
             Ink outfit = employee ? Ink.Burgundy : variation == 0 ? Ink.Teal : variation == 1 ? Ink.Oak : variation == 2 ? Ink.Blue : Ink.Green;
@@ -680,7 +681,9 @@ namespace WorstHotel
                 Ball(rig.head, "Ear", new Vector3(side * .208f, .071f, .019f), new Vector3(.07f, .13f, .08f), skin);
                 Ball(rig.head, "Eye white", new Vector3(side * .089f, .155f, .18f), new Vector3(.089f, .082f, .033f), Ink.White);
                 Ball(rig.head, "Dark pupil", new Vector3(side * .08f, .153f, .202f), new Vector3(.037f, .047f, .015f), Ink.Dark);
-                Rounded(rig.head, "Raised eyebrow", new Vector3(side * .089f, .224f, .179f), new Vector3(.104f, .028f, .04f), Ink.Hair).transform.localRotation = Quaternion.Euler(0, 0, side * (variation % 2 == 0 ? -8 : 11));
+                Transform brow = Rounded(rig.head, "Raised eyebrow", new Vector3(side * .089f, .224f, .179f), new Vector3(.104f, .028f, .04f), Ink.Hair).transform;
+                brow.localRotation = Quaternion.Euler(0, 0, side * (variation % 2 == 0 ? -8 : 11));
+                if (side < 0) rig.leftBrow = brow; else rig.rightBrow = brow;
             }
             rig.mouth = Rounded(rig.head, "Wry smile", new Vector3(0, -.028f, .174f), new Vector3(.107f, .022f, .025f), Ink.Hair).transform;
             Ball(rig.head, "Hair cap", new Vector3(0, .286f, -.014f), new Vector3(.407f, .18f, .344f), Ink.Hair);
@@ -717,6 +720,7 @@ namespace WorstHotel
             CapsuleCollider collider = p.gameObject.AddComponent<CapsuleCollider>();
             collider.center = new Vector3(0, .88f, 0); collider.height = 1.76f; collider.radius = .275f;
             rig.phase = variation * 1.37f;
+            rig.CaptureExpression();
             return p.gameObject;
         }
 
@@ -1159,12 +1163,35 @@ namespace WorstHotel
     internal sealed class HotelFigure : MonoBehaviour
     {
         internal Transform body, head, leftArm, rightArm, leftLeg, rightLeg, mouth, caption;
+        internal Transform leftBrow, rightBrow;
         internal float phase;
-        internal bool annoyed;
+        internal bool employee;
         Vector3 desired;
         float desiredYaw, pitch, stride;
         bool initialized, carrying, working;
         Camera facingCamera;
+        // Waiting, request and frustration are presentation-only weights. They never alter DTOs,
+        // navigation, the root capsule, or the existing walk cycle. No coroutine or clip is created.
+        Vector3 reaction, wantedReaction;
+        Vector3 leftBrowPosition, rightBrowPosition, mouthScale;
+        Quaternion leftBrowRotation, rightBrowRotation;
+
+        internal void CaptureExpression()
+        {
+            leftBrowPosition = leftBrow.localPosition; rightBrowPosition = rightBrow.localPosition;
+            leftBrowRotation = leftBrow.localRotation; rightBrowRotation = rightBrow.localRotation;
+            mouthScale = mouth.localScale;
+        }
+
+        internal void React(string stage, float satisfaction, bool towelRequested)
+        {
+            bool waiting = stage == "queue" || stage == "checkout";
+            bool staying = stage == "staying";
+            bool visibleStage = waiting || staying || stage == "walking" || stage == "leaving";
+            float frustration = visibleStage && satisfaction < 45 ? .65f + .35f * Mathf.Clamp01((45 - satisfaction) / 45) : 0;
+            // A stale towel flag must not ask for room service after checkout or while walking.
+            wantedReaction = employee ? Vector3.zero : new Vector3(waiting ? 1 : 0, staying && towelRequested ? 1 : 0, frustration);
+        }
 
         internal void Pose(Vector3 position, float? yaw, float lookPitch, bool carry, bool work)
         {
@@ -1181,8 +1208,24 @@ namespace WorstHotel
 
         void LateUpdate()
         {
+            Animate(Time.deltaTime, Time.time);
             if (!initialized) return;
-            float dt = Mathf.Min(Time.deltaTime, .1f);
+            if (caption != null)
+            {
+                if (facingCamera == null || !facingCamera.isActiveAndEnabled) facingCamera = Camera.main;
+                if (facingCamera != null)
+                {
+                    Vector3 towardCamera = facingCamera.transform.position - caption.position; towardCamera.y = 0;
+                    if (towardCamera.sqrMagnitude > .001f) caption.rotation = Quaternion.LookRotation(-towardCamera, Vector3.up);
+                }
+            }
+        }
+
+        // Explicit clock lets the native tests exercise the same path without entering play mode.
+        internal void Animate(float deltaTime, float time)
+        {
+            if (!initialized) return;
+            float dt = Mathf.Clamp(deltaTime, 0, .1f);
             float blend = 1 - Mathf.Exp(-18 * dt);
             float distance = (desired - transform.position).magnitude;
             if (distance > 3) transform.position = desired;
@@ -1193,20 +1236,35 @@ namespace WorstHotel
             float swing = Mathf.Sin(phase) * 26 * stride;
             leftLeg.localRotation = Quaternion.Euler(swing, 0, 0);
             rightLeg.localRotation = Quaternion.Euler(-swing, 0, 0);
-            leftArm.localRotation = Quaternion.Euler(carrying ? -52 : -swing * .7f, 0, 7);
-            rightArm.localRotation = Quaternion.Euler(working ? -65 + Mathf.Sin(Time.time * 12) * 15 : carrying ? -63 : swing * .7f, 0, -7);
-            body.localPosition = Vector3.up * (Mathf.Abs(Mathf.Sin(phase)) * .026f * stride + Mathf.Sin(Time.time * 1.8f + phase) * .004f);
-            head.localRotation = Quaternion.Euler(pitch * .5f, Mathf.Sin(Time.time * .8f + phase) * (stride < .1f ? 5 : 0), annoyed ? 7 : 0);
-            mouth.localRotation = Quaternion.Euler(0, 0, annoyed ? -18 : 0);
-            if (caption != null)
-            {
-                if (facingCamera == null || !facingCamera.isActiveAndEnabled) facingCamera = Camera.main;
-                if (facingCamera != null)
-                {
-                    Vector3 towardCamera = facingCamera.transform.position - caption.position; towardCamera.y = 0;
-                    if (towardCamera.sqrMagnitude > .001f) caption.rotation = Quaternion.LookRotation(-towardCamera, Vector3.up);
-                }
-            }
+            reaction = Vector3.Lerp(reaction, wantedReaction, 1 - Mathf.Exp(-7 * dt));
+            float freeArms = carrying || working ? 0 : 1 - Mathf.Clamp01(stride * 3);
+            float waiting = reaction.x * (1 - .65f * reaction.z) * freeArms;
+            float request = reaction.y * freeArms;
+            float complaint = reaction.z * (1 - reaction.y) * freeArms;
+            float gesture = Mathf.Sin(time * 2.2f + phase);
+            Quaternion leftPose = Quaternion.Euler(carrying ? -52 : -swing * .7f, 0, 7);
+            Quaternion rightPose = Quaternion.Euler(working ? -65 + Mathf.Sin(time * 12) * 15 : carrying ? -63 : swing * .7f, 0, -7);
+            // Queue/checkout: hands together at the waist and a restrained searching glance.
+            leftPose = Quaternion.Slerp(leftPose, Quaternion.Euler(-32, 20, 12), waiting);
+            rightPose = Quaternion.Slerp(rightPose, Quaternion.Euler(-32, -20, -12), waiting);
+            // Dissatisfied: one open hand at chest level; a request still keeps its raised hand.
+            leftPose = Quaternion.Slerp(leftPose, Quaternion.Euler(-12, 12, -15), complaint);
+            rightPose = Quaternion.Slerp(rightPose, Quaternion.Euler(-54 + gesture * 3, -18, -23), complaint);
+            leftArm.localRotation = Quaternion.Slerp(leftPose, Quaternion.Euler(-14, 0, 10), request);
+            rightArm.localRotation = Quaternion.Slerp(rightPose, Quaternion.Euler(-132 + gesture * 4, -10, -20 + gesture * 6), request);
+            body.localPosition = new Vector3(Mathf.Sin(time * .7f + phase) * .015f * waiting,
+                Mathf.Abs(Mathf.Sin(phase)) * .026f * stride + Mathf.Sin(time * 1.8f + phase) * .004f, 0);
+            head.localRotation = Quaternion.Euler(pitch * .5f + reaction.z * 5 - request * (3 + gesture * 2),
+                Mathf.Sin(time * .8f + phase) * (stride < .1f ? 5 : 0) + Mathf.Sin(time * .65f + phase) * 8 * waiting,
+                reaction.z * 6 - request * 5);
+            // Reapply from captured rest values: long sessions cannot accumulate transform drift.
+            float browRaise = reaction.y * (1 - reaction.z) * .025f;
+            leftBrow.localPosition = leftBrowPosition + Vector3.up * browRaise;
+            rightBrow.localPosition = rightBrowPosition + Vector3.up * browRaise;
+            leftBrow.localRotation = Quaternion.Slerp(leftBrowRotation, Quaternion.Euler(0, 0, -24), reaction.z);
+            rightBrow.localRotation = Quaternion.Slerp(rightBrowRotation, Quaternion.Euler(0, 0, 24), reaction.z);
+            mouth.localRotation = Quaternion.Euler(0, 0, -16 * reaction.z);
+            mouth.localScale = Vector3.Scale(mouthScale, new Vector3(1 - .35f * reaction.y, 1 + .7f * reaction.y, 1));
         }
     }
 
