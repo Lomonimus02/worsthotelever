@@ -53,6 +53,8 @@ namespace WorstHotel
             while(game.Session.State.players.Count<2&&Time.realtimeSinceStartup<deadline)yield return null;
             if(game.Session.State.players.Count<2){Finish(false,"Second player did not join");yield break;}
             checks.Add("TWO_PLAYERS_REPLICATED");
+            if(game.Session.State.contentVersion!=1||!game.Session.State.guidedOpening){Finish(false,"New hotel guided rules not replicated");yield break;}
+            checks.Add("GUIDED_RULES_REPLICATED");
             if(game.Session.IsHost) {
                 game.Session.Save();
                 var loaded=HotelSaveStore.Load(game.Session.SavePath);
@@ -61,14 +63,28 @@ namespace WorstHotel
                 // Change a real replicated field and verify it on the other process.
                 game.Session.State.notice="WHE_SMOKE_SNAPSHOT";
                 deadline=Time.realtimeSinceStartup+58;
-                while(game.Session.State.players.Count>1&&Time.realtimeSinceStartup<deadline)yield return null;
+                bool opened=false;
+                while(game.Session.State.players.Count>1&&Time.realtimeSinceStartup<deadline) {
+                    if(!opened&&game.Session.State.rooms.Find(r=>r.number==102).bed==0) {
+                        // The walking/input test above stays untouched. This host fixture starts
+                        // a real shift afterward to verify the new guest DTO across processes.
+                        var position=new Vector3(0,.1f,-2);game.Teleport(position);
+                        game.Session.Simulation.Execute(0,new HotelCommand("pose"){position=position});
+                        game.Session.Send(new HotelCommand("open"));opened=true;
+                    }
+                    yield return null;
+                }
                 if(game.Session.State.players.Count>1){Finish(false,"Client did not complete/disconnect");yield break;}
                 if(game.Session.State.items.Exists(i=>i.holder>0)){Finish(false,"Disconnected client retained an item");yield break;}
                 checks.Add("DISCONNECT_RELEASES_OWNERSHIP");
                 if(game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Host did not observe completed bed work");yield break;}
                 checks.Add("HOST_SEES_CLIENT_ROOM_WORK");
-                if(!game.Session.Save()||HotelSaveStore.Load(game.Session.SavePath).rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Final cooperative change did not persist");yield break;}
+                if(!game.Session.State.guidedOpening){Finish(false,"Client changed host-only guided pace");yield break;}
+                if(!game.Session.Save()||HotelSaveStore.Load(game.Session.SavePath).rooms.Find(r=>r.number==102).bed!=0||!HotelSaveStore.Load(game.Session.SavePath).guidedOpening){Finish(false,"Final cooperative change did not persist");yield break;}
                 checks.Add("COOPERATIVE_CHANGE_PERSISTED");
+                var savedGuest=HotelSaveStore.Load(game.Session.SavePath).guests.Find(g=>g.profileVersion==1&&g.profileId=="patient");
+                if(!opened||savedGuest==null){Finish(false,"Guest profile not authored and saved after cooperative work");yield break;}
+                checks.Add("HOST_GUEST_CATALOGUE_SNAPSHOT_PERSISTED");
                 checks.Add("HOST_WORLD_STABLE");
             } else {
                 float t=Time.realtimeSinceStartup;Vector3 start=game.Controller.transform.position;
@@ -116,6 +132,11 @@ namespace WorstHotel
                 yield return new WaitForSecondsRealtime(.8f);
                 if(response!="Это действие подтверждает хозяин отеля."||game.Session.State.cash!=original){Finish(false,"Expected explicit host-only rejection near board, got: "+response);yield break;}
                 checks.Add("CLIENT_ADMIN_REJECTED_AT_VALID_DISTANCE");
+                response=null;
+                game.Session.Send(new HotelCommand("endGuidedOpening"));
+                yield return new WaitForSecondsRealtime(.6f);
+                if(response!="Это действие подтверждает хозяин отеля."||!game.Session.State.guidedOpening){Finish(false,"Client could disable guided opening or did not get explicit refusal");yield break;}
+                checks.Add("CLIENT_GUIDED_PACE_CHANGE_REJECTED");
                 deadline=Time.realtimeSinceStartup+12;
                 while(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"&&Time.realtimeSinceStartup<deadline)yield return null;
                 if(game.Session.State.notice!="WHE_SMOKE_SNAPSHOT"){Finish(false,"Host snapshot was not received");yield break;}
@@ -132,6 +153,11 @@ namespace WorstHotel
                 InputSystem.QueueStateEvent(Keyboard.current,new KeyboardState());yield return new WaitForSecondsRealtime(.5f);
                 if(game.Held?.kind!="dirtylinen"||game.Session.State.rooms.Find(r=>r.number==102).bed!=0){Finish(false,"Held E did not complete authoritative bed work");yield break;}
                 checks.Add("HELD_E_BED_WORK_REPLICATED");CaptureWorld("client-room-102");
+                deadline=Time.realtimeSinceStartup+8;
+                while(game.Session.State.guests.Count==0&&Time.realtimeSinceStartup<deadline)yield return null;
+                var guest=game.Session.State.guests.Find(g=>g.profileId=="patient");
+                if(guest==null||guest.profileVersion!=1||guest.requestDelay<=0||guest.stayDuration<=0||!HotelDirector.ClockHeld(game.Session.State)) {Finish(false,"Active guest catalogue fields/guided clock not replicated");yield break;}
+                checks.Add("ACTIVE_GUEST_PROFILE_AND_GUIDED_CLOCK_REPLICATED");
             }
             Finish(errors.Count==0,errors.Count==0?"All smoke checks passed":"Runtime errors");
         }

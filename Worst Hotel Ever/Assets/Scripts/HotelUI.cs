@@ -10,7 +10,7 @@ namespace WorstHotel
         public HotelGame Game;
         HotelState S=>Game.Session.State;
         GUIStyle small,normal,bold,title,huge,button;
-        readonly Color ink=new Color(.095f,.135f,.14f), paper=new Color(.96f,.93f,.85f), muted=new Color(.62f,.69f,.65f), red=new Color(.68f,.24f,.22f), gold=new Color(.9f,.68f,.36f), green=new Color(.35f,.71f,.53f);
+        readonly Color ink=new Color(.095f,.135f,.14f), paper=new Color(.96f,.93f,.85f), muted=new Color(.82f,.86f,.81f), red=new Color(.68f,.24f,.22f), gold=new Color(.9f,.68f,.36f), green=new Color(.35f,.71f,.53f);
         string address="127.0.0.1",port="7777",password="",steamLobby="";
         bool hostLoad;
         Vector2 scroll, guestScroll; string lastPhase="";
@@ -52,7 +52,9 @@ namespace WorstHotel
                 if(Button(new Rect(459,498,520,47),"Отменить")){Game.Session.Disconnect(false);Game.OpenPanel("menu");}
             }
             if(Game.Toast!=""&&(Game.Playing||Game.Panel=="steam")) {
-                Box(new Rect(370,115,700,60),new Color(.07f,.12f,.13f,.94f));Text(new Rect(389,126,662,45),Game.Toast,normal);
+                float toastY=Game.Panel==""?115:800;
+                float toastHeight=Mathf.Clamp(normal.CalcHeight(new GUIContent(Game.Toast),662)+22,60,96);
+                Box(new Rect(370,toastY,700,toastHeight),new Color(.07f,.12f,.13f,.94f));Text(new Rect(389,toastY+11,662,toastHeight-18),Game.Toast,normal);
             }
             GUI.matrix=Matrix4x4.identity;
         }
@@ -74,7 +76,7 @@ namespace WorstHotel
             Box(new Rect(49,67,62,5),gold);Text(new Rect(49,90,450,30),"КОМАНДА НУЖНА. ОПЫТ НЕОБЯЗАТЕЛЕН.",small,gold);
             Text(new Rect(43,140,510,260),"WORST\nHOTEL\nEVER",huge);
             Text(new Rect(49,388,465,78),"Четыре номера. Два сотрудника.\nИ всё обязательно пойдёт не так.",normal);
-            Text(new Rect(49,837,465,30),"PRE-MVP 0.2  /  WINDOWS  /  1–2 СОТРУДНИКА",small,muted);
+            Text(new Rect(49,837,465,30),"PRE-MVP 0.3  /  WINDOWS  /  1–2 СОТРУДНИКА",small,muted);
             Box(new Rect(998,24,397,74),new Color(.065f,.105f,.11f,.84f));
             Text(new Rect(1017,36,366,50),"ОТЕЛЬ «ПОЧТИ ГРАНД»\n★  НАЧНИТЕ С ЧИСТОГО ПОЛОТЕНЦА",small,paper);
             if(Game.Panel=="menu" && Button(new Rect(980,673,405,53),"Тест Steam (AppID 480)"))Game.Panel="steam";
@@ -90,7 +92,7 @@ namespace WorstHotel
                 if(Button(new Rect(345,710,165,53),"Назад")){Game.Session.Disconnect(false);Game.Panel="menu";}
                 Text(new Rect(50,775,460,55),"Локальная сеть / VPN-сеть / доступный IP.\nДля прямого интернета хосту нужен UDP-порт.",small,muted);
             } else if(Game.Panel=="new") {
-                Text(new Rect(50,480,460,68),hostLoad?"Продолжить сохранённый отель":"Новая история. Старый отель будет сохранён в архиве.",normal);
+                Text(new Rect(50,473,460,80),hostLoad?"Продолжить сохранённый отель. Правила начатой истории сохранятся.":"Новая история: спокойное обучение.\nПрежний отель сохранится в архиве.",normal);
                 Text(new Rect(50,559,305,24),"Пароль комнаты (необязательно)",small);
                 Text(new Rect(370,559,140,24),"UDP-порт",small);
                 password=GUI.PasswordField(new Rect(50,590,300,45),password,'●',32);port=GUI.TextField(new Rect(370,590,140,45),port,5);
@@ -118,7 +120,7 @@ namespace WorstHotel
             Text(new Rect(48,35,260,27),"ПОЧТИ ГРАНД",bold);Text(new Rect(48,64,320,22),Game.Session.IsHost?"ВЫ — ХОСТ  ·  СОТРУДНИКОВ "+S.players.Count+"/2":"КООПЕРАТИВ  ·  СОТРУДНИКОВ "+S.players.Count+"/2",small,muted);
             Text(new Rect(367,36,300,32),"ДЕНЬ "+S.day+"  /  "+Phase(S.phase),bold);
             float left=Mathf.Max(0,S.dayLength-S.time);
-            Text(new Rect(730,36,220,28),S.phase=="open"?"ДО ЗАКРЫТИЯ  "+((int)left/60).ToString("00")+":"+((int)left%60).ToString("00"):"ВЫДОХНИТЕ. ПОКА.",small,gold);
+            Text(new Rect(730,36,315,44),HotelDirector.ClockHeld(S)?"УЧЕБНЫЙ ТАЙМЕР ОСТАНОВЛЕН":S.phase=="open"?"ДО ЗАКРЫТИЯ  "+((int)left/60).ToString("00")+":"+((int)left%60).ToString("00"):"ВЫДОХНИТЕ. ПОКА.",small,gold);
             Text(new Rect(1080,34,290,38),S.cash+" ₽",title,green);
             if(Game.Panel!="")return;
             Box(new Rect(716,446,8,8),paper);
@@ -140,13 +142,18 @@ namespace WorstHotel
             var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId);
             if(hint!=null) {
                 Box(new Rect(25,125,330,246),new Color(.065f,.105f,.11f,.92f));
-                Text(new Rect(42,140,296,24),"ПЕРВАЯ СМЕНА  ·  "+hint.completed+" / "+hint.total,small,gold);
+                Text(new Rect(42,140,296,24),(S.day==1?"ПЕРВАЯ СМЕНА":"ДЕНЬ 2 · ПРАКТИКА")+"  ·  "+hint.completed+" / "+hint.total,small,gold);
                 Text(new Rect(42,175,296,58),hint.title,bold);
                 Text(new Rect(42,239,296,114),hint.body,small);
                 DrawHintTarget(hint.targetId);
             } else {
                 var task=TaskLines().FirstOrDefault();
                 if(task!=null){Box(new Rect(25,125,320,112),new Color(.065f,.105f,.11f,.87f));Text(new Rect(40,137,290,22),"ОБЩИЕ ЗАДАЧИ  ·  TAB",small,gold);Text(new Rect(40,165,290,62),task,normal);}
+            }
+            if(HotelDirector.IsGuided(S)) {
+                Box(new Rect(25,441,330,123),new Color(.065f,.105f,.11f,.92f));
+                Text(new Rect(42,452,296,77),HotelDirector.Status(S),small,gold);
+                Text(new Rect(42,532,296,23),"ESC → План смены / темп",small,muted);
             }
         }
         void DrawHintTarget(string targetId)
@@ -177,17 +184,38 @@ namespace WorstHotel
         void Window()
         {
             string panel=Game.Panel;
-            Frame(panel=="tasks"?"Работа найдётся каждому":panel=="reception"?"Ресепшен":panel=="summary"?"Смена окончена":"Управление отелем", "Мир продолжает жить, пока открыта панель.  /  ESC — вернуться в игру");
+            Frame(panel=="tasks"?"Работа найдётся каждому":panel=="reception"?"Ресепшен":panel=="summary"?"Смена окончена":panel=="briefing"?"План смены":panel=="pace-confirm"?"Перейти к обычному темпу?":"Управление отелем", "Мир продолжает жить, пока открыта панель.  /  ESC — вернуться в игру");
             if(panel=="summary") { Summary(); return; }
             if(panel=="finish-confirm") { FinishConfirmation(); return; }
             if(panel=="guest") { GuestDetails(); return; }
+            if(panel=="pace-confirm") { PaceConfirmation(); return; }
             if(Button(new Rect(202,258,220,42),"Номера / гости"))Game.Panel="reception";
             if(Button(new Rect(434,258,220,42),"Задачи"))Game.Panel="tasks";
             if(Button(new Rect(666,258,220,42),"Смена / улучшения"))Game.Panel="management";
+            if(Button(new Rect(898,258,340,42),"План смены / учебный темп"))Game.Panel="briefing";
             Box(new Rect(202,314,1036,2),new Color(.24f,.31f,.29f));
             if(panel=="tasks") { Tasks(); return; }
             if(panel=="management") { Management(); return; }
+            if(panel=="briefing") { Briefing(); return; }
             Rooms();
+        }
+        void Briefing()
+        {
+            Text(new Rect(215,338,970,62),HotelDirector.Status(S),bold,gold);
+            Text(new Rect(215,411,582,191),HotelDirector.DayBrief(S),normal);
+            Text(new Rect(833,411,368,187),"ПОДСКАЗКИ И ТЕМП — РАЗНОЕ\n\nПодсказки объясняют действие. Учебный темп ограничивает нагрузку и даёт время освоиться.",normal,muted);
+            bool helpAvailable=S.day==1||(S.contentVersion==1&&S.day==2);
+            if(helpAvailable&&Button(new Rect(215,628,475,48),S.tutorialSkipped?"Показать подсказки":"Скрыть подсказки",Game.Session.IsHost))Send(S.tutorialSkipped?"resumeTutorial":"skipTutorial");
+            if(!helpAvailable)Text(new Rect(215,633,475,44),"Подсказки доступны в начале истории.",small,muted);
+            if(Button(new Rect(712,628,489,48),HotelDirector.IsGuided(S)?"Перейти к обычному темпу…":"Обычный темп",Game.Session.IsHost&&HotelDirector.IsGuided(S)))Game.Panel="pace-confirm";
+            Text(new Rect(215,697,980,59),"Настройки общие для команды; меняет хост. Скрытие подсказок не ускоряет смену.\nИз обычного темпа нельзя вернуться в учебный для этого отеля.",small,muted);
+        }
+        void PaceConfirmation()
+        {
+            Text(new Rect(220,282,990,90),"Учебные ограничения будут сняты для этого отеля.",title,gold);
+            Text(new Rect(220,408,990,162),"Включится обычный отсчёт смены. Гости смогут ждать, жаловаться и уезжать по обычным правилам.\n\nТекущие гости, вещи, деньги и освоенные действия останутся. Повторное обучение не создаётся; подсказки можно оставить включёнными.",normal);
+            if(Button(new Rect(220,647,475,58),"Остаться в учебном темпе"))Game.Panel="briefing";
+            if(Button(new Rect(720,647,485,58),"Включить обычный темп",Game.Session.IsHost&&HotelDirector.IsGuided(S),true)){Send("endGuidedOpening");Game.Panel="briefing";}
         }
         void Rooms()
         {
@@ -291,7 +319,7 @@ namespace WorstHotel
             Text(new Rect(750,285,458,37),"ЧТО О НАС ГОВОРЯТ",bold,gold);
             int y=337;foreach(string review in S.reviews.AsEnumerable().Reverse().Take(4)){Text(new Rect(750,y,450,77),"«"+review+"»",normal);y+=88;}
             if(Button(new Rect(204,610,470,59),"Подготовиться к дню "+(S.day+1),Game.Session.IsHost,true)) {Send("nextday");Game.Session.Save();if(S.phase=="preparation")Game.OpenPanel("management");}
-            Text(new Rect(204,700,1000,45),"Отель сохраняется автоматически у хоста. Уборка и повреждения не исчезнут после перезапуска.",small,muted);
+            Text(new Rect(204,687,1000,65),S.day==1?"Дальше: подготовка, покупка у доски и второй день с обычной нагрузкой.\nУборка и повреждения не исчезнут; улучшение останется в отеле.":"Отель сохраняется автоматически у хоста. Уборка и повреждения не исчезнут после перезапуска.",small,muted);
         }
         void Settings()
         {
@@ -337,15 +365,15 @@ namespace WorstHotel
         }
         void Pause()
         {
-            Frame("Перевести дух","В онлайн-сессии время не останавливается. Для спокойной уборки завершите смену.");
+            Frame("Перевести дух","Меню не ставит мир на паузу. Учебный таймер ждёт освоения основ; работа и движение продолжаются.");
             if(Button(new Rect(320,305,800,58),"Вернуться в отель",true,true))Game.OpenPanel("");
             if(Button(new Rect(320,379,800,52),"Настройки камеры и звука"))Game.OpenPanel("settings");
             if(Button(new Rect(320,449,800,52),"Задачи и состояние номеров"))Game.OpenPanel("tasks");
             if(Button(new Rect(320,519,800,52),"Сохранить отель",Game.Session.IsHost)){if(Game.Session.Save())Game.Notify("Сохранено.");}
-            if(S!=null&&S.day==1&&Button(new Rect(320,580,800,42),S.tutorialSkipped?"Включить помощь первой смены":"Отключить помощь первой смены",Game.Session.IsHost))Send(S.tutorialSkipped?"resumeTutorial":"skipTutorial");
-            if(Button(new Rect(320,639,800,45),Game.Session.IsHost?"Сохранить и закрыть сессию":"Покинуть сессию"))Game.Leave();
-            Text(new Rect(320,691,800,50),Game.Session.Status+"\nСохранение хранится локально на компьютере хоста.",small,muted);
-            if(Game.Session.SteamMode && Button(new Rect(875,701,240,40),"Скопировать ID лобби")){GUIUtility.systemCopyBuffer=HotelSteam.LobbyId.ToString();Game.Notify("ID лобби скопирован.");}
+            if(Button(new Rect(320,586,800,48),"План смены / подсказки / учебный темп"))Game.Panel="briefing";
+            if(Button(new Rect(320,650,800,45),Game.Session.IsHost?"Сохранить и закрыть сессию":"Покинуть сессию"))Game.Leave();
+            Text(new Rect(320,710,545,45),Game.Session.Status+"\nСохранение хранится на компьютере хоста.",small,muted);
+            if(Game.Session.SteamMode && Button(new Rect(875,710,240,40),"Скопировать ID лобби")){GUIUtility.systemCopyBuffer=HotelSteam.LobbyId.ToString();Game.Notify("ID лобби скопирован.");}
         }
         void Send(string action,string target="",int number=0){Game.Session.Send(new HotelCommand(action,target,number));}
         static string Phase(string phase){switch(phase){case "preparation":return "ПОДГОТОВКА";case "open":return "ОТЕЛЬ ОТКРЫТ";case "closing":return "ЗАКРЫТИЕ";case "summary":return "ИТОГИ";default:return phase;}}

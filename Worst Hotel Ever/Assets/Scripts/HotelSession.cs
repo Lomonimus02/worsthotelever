@@ -12,7 +12,7 @@ namespace WorstHotel
     // One authority and one simulation. Clients send intentions, never modified hotel data.
     public sealed class HotelSession : MonoBehaviour
     {
-        public const string Protocol = "WHE-premvp-2";
+        public const string Protocol = "WHE-premvp-3";
         public HotelSimulation Simulation { get; private set; }
         public HotelState State { get; private set; }
         public NetworkManager Manager { get; private set; }

@@ -48,6 +48,7 @@ namespace WorstHotel
             yield return null;
             if(!Check(game.LocalPlayer!=null,"Connected client has no simulation player"))yield break;
             if(scenario=="ui") {yield return ReviewUI();Finish(errors.Count==0);yield break;}
+            if(scenario=="opening") {yield return ReviewOpening();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario.StartsWith("capacity-client"))
             {
                 checks.Add("CAPACITY_ACCEPTED_WITH_PLAYER");
@@ -121,6 +122,108 @@ namespace WorstHotel
                     .Invoke(game.Session.Manager.NetworkConfig.NetworkTransport,new object[]{NetworkEvent.TransportFailure,0UL,default(ArraySegment<byte>),Time.realtimeSinceStartup});
             } finally { expectedFailure=false; }
         }
+        // This runs the shipped Resources + host rules in the standalone player. It is a
+        // deterministic fixture with accelerated ticks/teleports, NOT a human-input test.
+        void FixtureAt(string target)
+        {
+            Vector3 position=HotelLayout.Target(target);position.y=.1f;
+            game.Teleport(position);
+            string error=game.Session.Simulation.Execute(0,new HotelCommand("pose"){position=position});
+            if(error!="")throw new Exception("Fixture pose: "+error);
+        }
+        void FixtureCommand(string action,string target="",int number=0)
+        {
+            string failure=null;Action<string> feedback=message=>failure=message;
+            game.Session.Feedback+=feedback;
+            try{game.Session.Send(new HotelCommand(action,target,number));}
+            finally{game.Session.Feedback-=feedback;}
+            if(!string.IsNullOrEmpty(failure))throw new Exception(action+" "+target+": "+failure);
+        }
+        void FixtureAdvance(float seconds)
+        {
+            for(int i=0;i<(int)Math.Ceiling(seconds*10);i++)game.Session.Simulation.Tick(.1f);
+        }
+        void FixtureWork(string target)
+        {
+            FixtureAt(target);FixtureCommand("beginwork",target);
+            for(int i=0;i<80&&game.Session.State.players[0].workTarget!="";i++)
+            {FixtureCommand("heartbeat",target);game.Session.Simulation.Tick(.1f);}
+            if(game.Session.State.players[0].workTarget!="")throw new Exception("Work did not complete: "+target);
+        }
+        void FixturePick(string kind)
+        {
+            var item=game.Session.State.items.Find(i=>i.kind==kind&&!i.consumed&&i.holder==-1);
+            if(item==null)throw new Exception("Fixture has no free "+kind);
+            Vector3 position=item.position;position.y=.1f;game.Teleport(position);
+            string error=game.Session.Simulation.Execute(0,new HotelCommand("pose"){position=position});
+            if(error!="")throw new Exception("Pickup pose: "+error);
+            FixtureCommand("pickup",item.id);
+        }
+        void FixtureDrop()
+        {
+            game.Session.Send(new HotelCommand("drop"){position=game.Session.State.players[0].position});
+            if(game.Session.State.players[0].held!="")throw new Exception("Fixture drop failed");
+        }
+        IEnumerator ReviewOpening()
+        {
+            int firstGuest=0,leakRoom=0;string worldId="";
+            float requestDelay=0,stayDuration=0,patienceLimit=0;
+            try {
+                var state=game.Session.State;worldId=state.worldId;
+                if(state.contentVersion!=1||!state.guidedOpening)throw new Exception("New guided state absent in player");
+                FixtureAt("desk");FixtureCommand("open");FixtureAdvance(600);
+                if(state.arrivals!=1||state.guests[0].stage!="queue"||!HotelDirector.ClockHeld(state))throw new Exception("Slow learner lost first guest or shift");
+                var profile=state.guests[0];
+                if(profile.profileVersion!=1||profile.profileId!="patient"||profile.requestDelay<=0)throw new Exception("Packaged catalogue not used; fallback guest is insufficient");
+                requestDelay=profile.requestDelay;stayDuration=profile.stayDuration;patienceLimit=profile.patienceLimit;
+                checks.Add("PACKAGED_GUIDED_OPENING_PROTECTS_SLOW_TEAM");
+                FixtureCommand("checkin",number:103);firstGuest=state.guests[0].id;
+                FixturePick("bag");FixtureAt("bag_103");FixtureCommand("interact","bag_103");
+                FixtureAt("linen");FixtureCommand("interact","linen");FixtureWork("bed_104");
+                FixtureAdvance(90);
+                if(!state.guests[0].towelRequested)throw new Exception("Guided towel request absent");
+                FixtureAt("towels");FixtureCommand("interact","towels");FixtureAt("towel_103");FixtureCommand("interact","towel_103");
+                FixtureAdvance(1);
+                var leak=state.rooms.Find(r=>r.leak);
+                if(leak==null)throw new Exception("Conditional leak absent after service and preparation");
+                leakRoom=leak.number;
+                if(!game.Session.Save())throw new Exception("Mid-lesson save failed");
+                checks.Add("ALTERNATE_ROOM_SERVICE_PREPARATION_AND_REAL_LEAK");
+            } catch(Exception e){Check(false,e.ToString());yield break;}
+            if(!Check(game.Session.Disconnect(),"Opening fixture disconnect failed"))yield break;
+            yield return null;yield return null;
+            game.Session.Host(true,17782,"");
+            float until=Time.realtimeSinceStartup+6;
+            while(!game.Playing&&Time.realtimeSinceStartup<until)yield return null;
+            if(!Check(game.Playing,"Mid-lesson reload did not connect"))yield break;
+            yield return null;
+            try {
+                var state=game.Session.State;
+                if(state.worldId!=worldId||state.guests[0].id!=firstGuest||!state.rooms.Find(r=>r.number==leakRoom).leak)throw new Exception("Mid-lesson state not restored");
+                var profile=state.guests[0];
+                if(profile.profileVersion!=1||profile.requestDelay!=requestDelay||profile.stayDuration!=stayDuration||profile.patienceLimit!=patienceLimit)throw new Exception("Active guest catalogue snapshot changed after reload");
+                checks.Add("PACKAGED_GUEST_CATALOGUE_AND_ACTIVE_SNAPSHOT_PERSIST");
+                FixturePick("toolbox");FixtureWork("sink_"+leakRoom);FixtureDrop();
+                FixturePick("mop");FixtureWork("water_"+leakRoom);FixtureDrop();FixtureAdvance(1);
+                if(HotelDirector.ClockHeld(state))throw new Exception("Foundation lessons did not release clock");
+                if(state.rooms.Exists(r=>r.leak))throw new Exception("Reload duplicated guided leak");
+                checks.Add("MID_LESSON_RELOAD_REPAIR_WATER_AND_DIRECTOR_HANDOFF");
+                var guest=state.guests.Find(g=>g.id==firstGuest);
+                for(int i=0;i<4000&&(guest.stage!="checkout"||Vector3.Distance(guest.position,new Vector3(.7f,0,-2.3f))>.15f);i++)game.Session.Simulation.Tick(.1f);
+                FixtureAt("desk");FixtureCommand("checkout",number:firstGuest);
+                if(!guest.paid||state.earned<=0)throw new Exception("Actual checkout did not pay");
+                FixtureCommand("finish");FixtureCommand("nextday");
+                if(state.day!=2||state.phase!="preparation"||state.rooms.Find(r=>r.number==103).bed!=1)throw new Exception("Day2 lost turnover state");
+                FixtureAt("board");FixtureCommand("upgrade","toolbox");
+                if(!state.secondToolbox||state.items.FindAll(i=>i.kind=="toolbox"&&!i.consumed).Count!=2)throw new Exception("Upgrade not materialized");
+                FixtureAt("desk");FixtureCommand("open");FixtureAdvance(190);
+                if(state.arrivals<2||state.guests.Find(g=>g.trait=="Спешит")==null||state.time<180||HotelDirector.ClockHeld(state))throw new Exception("Day2 did not use normal population/clock");
+                if(!game.Session.Save())throw new Exception("Day2 save failed");
+                var loaded=HotelSaveStore.Load(game.Session.SavePath);
+                if(loaded.day!=2||!loaded.secondToolbox||loaded.worldId!=worldId||loaded.cash!=state.cash)throw new Exception("Day2 save lost progress");
+                checks.Add("CHECKOUT_TURNOVER_PURCHASE_AND_NORMAL_DAY_TWO_PERSIST");
+            } catch(Exception e){Check(false,e.ToString());yield break;}
+        }
         IEnumerator ReviewUI()
         {
             // Visual regression fixtures use real simulation commands but are not an input test.
@@ -130,25 +233,30 @@ namespace WorstHotel
             game.Teleport(new Vector3(0,.1f,-2));
             game.Session.Simulation.Execute(0,new HotelCommand("open"));
             foreach(int width in new[]{1280,960})
+                yield return CapturePanels(width,"",new[]{"","reception","guest","tasks","management","briefing","pace-confirm","finish-confirm","pause"});
+            FixtureAt("desk");FixtureCommand("finish");FixtureCommand("nextday");
+            foreach(int width in new[]{1280,960})
+                yield return CapturePanels(width,"day2-",new[]{"briefing",""});
+            checks.Add("UI_RENDER_FIXTURES_1280x800_AND_960x600_22_PANELS");
+        }
+        IEnumerator CapturePanels(int width,string prefix,string[] panels)
+        {
+            Screen.SetResolution(width,width==1280?800:600,FullScreenMode.Windowed);
+            yield return new WaitForSecondsRealtime(.7f);
+            foreach(string panel in panels)
             {
-                Screen.SetResolution(width,width==1280?800:600,FullScreenMode.Windowed);
-                yield return new WaitForSecondsRealtime(.7f);
-                foreach(string panel in new[]{"","reception","guest","tasks","management","finish-confirm","pause"})
-                {
-                    if(panel=="guest")typeof(HotelUI).GetField("selectedGuest",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(game.UI,game.Session.State.guests[0].id);
-                    game.OpenPanel(panel);
-                    yield return new WaitForSecondsRealtime(.4f);
-                    yield return new WaitForEndOfFrame();
-                    var texture=ScreenCapture.CaptureScreenshotAsTexture();
-                    try {
-                        int lit=0;var pixels=texture.GetPixels32();
-                        for(int i=0;i<pixels.Length;i+=64)if(pixels[i].r+pixels[i].g+pixels[i].b>70)lit++;
-                        if(lit<100)errors.Add("Blank UI capture "+panel+" "+width);
-                        File.WriteAllBytes(Path.Combine(directory,"ui-"+width+"-"+(panel==""?"hud":panel)+".png"),texture.EncodeToPNG());
-                    }finally{Destroy(texture);}
-                }
+                if(panel=="guest")typeof(HotelUI).GetField("selectedGuest",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(game.UI,game.Session.State.guests[0].id);
+                game.OpenPanel(panel);
+                yield return new WaitForSecondsRealtime(.4f);
+                yield return new WaitForEndOfFrame();
+                var texture=ScreenCapture.CaptureScreenshotAsTexture();
+                try {
+                    int lit=0;var pixels=texture.GetPixels32();
+                    for(int i=0;i<pixels.Length;i+=64)if(pixels[i].r+pixels[i].g+pixels[i].b>70)lit++;
+                    if(lit<100)errors.Add("Blank UI capture "+prefix+panel+" "+width);
+                    File.WriteAllBytes(Path.Combine(directory,"ui-"+width+"-"+prefix+(panel==""?"hud":panel)+".png"),texture.EncodeToPNG());
+                }finally{Destroy(texture);}
             }
-            checks.Add("UI_RENDER_FIXTURES_1280x800_AND_960x600");
         }
         bool Check(bool condition,string error)
         {
