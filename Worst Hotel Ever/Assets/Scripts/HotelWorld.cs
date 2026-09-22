@@ -43,6 +43,14 @@ namespace WorstHotel
         TextMesh linenCount, towelCount, openSign;
         int previousLinen = -1, previousTowels = -1;
         string previousPhase;
+        readonly HashSet<int> seenRooms = new HashSet<int>();
+        readonly HashSet<int> coffeeDelivered = new HashSet<int>();
+        readonly Dictionary<int, string> guestRequests = new Dictionary<int, string>();
+        Transform mvpServices;
+        EquipmentVisual waterService, powerService;
+        GameObject basicCoffee, upgradedCoffee;
+        TextMesh coffeeStock;
+        int previousCoffee = int.MinValue;
 
         sealed class RoomVisual
         {
@@ -52,13 +60,35 @@ namespace WorstHotel
             public TextMesh status;
             public int bed = -1, flag = -1;
             public float waterAmount = -1;
+            public GameObject furnishings, conditions, lockedDoor, openDoor, legacyFixtures, mvpFixtures;
+            public Transform bedGeometry;
+            public Renderer bedFabric, linenBand, finishWall, finishRug, tvBezel, lampGlow, ceilingGlow;
+            public GameObject luxuryLinen, tvUpgrade, deliveredCoffee;
+            public readonly List<GameObject> dirt = new List<GameObject>(), dirtyTowels = new List<GameObject>(), overflow = new List<GameObject>();
+            public readonly Dictionary<string, EquipmentVisual> equipment = new Dictionary<string, EquipmentVisual>();
+            public TextMesh roomInfo;
+            public Light roomLight;
+            public bool owned = true, ownershipKnown;
+            public int capacity = -1, bedQuality = -1, tvQuality = -1;
+            public string finish;
+        }
+        sealed class EquipmentVisual
+        {
+            public GameObject root, model, failure, unavailable, missing, working;
+            public Renderer indicator;
+            public Renderer surface;
+            public TextMesh status;
+            public readonly List<GameObject> wear = new List<GameObject>();
+            public int code = -1;
         }
         sealed class PersonVisual
         {
             public GameObject root;
             public HotelFigure figure;
             public TextMesh caption;
-            public string previousCaption;
+            public string stage, guestName, request;
+            public int room = -1, party = -1;
+            public bool annoyed, luggage, towel;
         }
         sealed class ItemVisual
         {
@@ -68,6 +98,9 @@ namespace WorstHotel
             public bool held;
             public TextMesh ownerTag;
             public int ownerGuest = -1;
+            public string size, condition;
+            public Renderer[] surfaces;
+            public Material[] originalMaterials;
         }
 
         public void Build()
@@ -80,7 +113,8 @@ namespace WorstHotel
             BuildShell();
             BuildLobby();
             BuildStorage();
-            for (int n = 101; n <= 104; ++n) BuildRoom(n);
+            BuildServices();
+            for (int n = HotelLayout.FirstRoom; n <= HotelLayout.LastRoom; ++n) BuildRoom(n);
             BuildLighting();
             // Only immutable architecture is batched. Water, bed variants, stock and people stay movable.
             StaticBatchingUtility.Combine(architecture.gameObject);
@@ -92,9 +126,22 @@ namespace WorstHotel
             if (state == null) return;
             if (!built) Build();
             ApplyStock(state);
+            ApplyServices(state);
+            coffeeDelivered.Clear();
+            guestRequests.Clear();
+            if (state.mvp != null && state.mvp.requests != null)
+                foreach (MvpRequestState request in state.mvp.requests)
+                {
+                    if (request == null) continue;
+                    if (request.kind == "coffee" && request.status == "fulfilled") coffeeDelivered.Add(request.guestId);
+                    if (request.status == "open" && !guestRequests.ContainsKey(request.guestId)) guestRequests.Add(request.guestId, request.kind);
+                }
+            seenRooms.Clear();
             if (state.rooms != null)
                 foreach (RoomState room in state.rooms)
-                    if (room != null && rooms.TryGetValue(room.number, out RoomVisual visual)) ApplyRoom(room, visual);
+                    if (room != null && seenRooms.Add(room.number) && rooms.TryGetValue(room.number, out RoomVisual visual)) ApplyRoom(state, room, visual);
+            foreach (var pair in rooms)
+                if (!seenRooms.Contains(pair.Key)) SetOwned(pair.Value, pair.Key <= 104);
 
             seenPlayers.Clear(); playerStates.Clear();
             if (state.players != null)
@@ -122,17 +169,24 @@ namespace WorstHotel
                     if (guest == null || guest.stage == "gone" || !seenGuests.Add(guest.id)) continue;
                     if (!guests.TryGetValue(guest.id, out PersonVisual visual))
                     {
-                        visual = CreatePerson(false, guest.id, "guest_" + guest.id, "Гость");
+                        int appearance = guest.mvp == null ? guest.id : unchecked(guest.id * 4) +
+                            (guest.mvp.archetype == "business" ? 0 : guest.mvp.archetype == "family" ? 2 : guest.mvp.archetype == "vip" ? 3 : 1);
+                        visual = CreatePerson(false, appearance, "guest_" + guest.id, "Гость");
                         guests.Add(guest.id, visual);
                     }
                     visual.figure.Pose(guest.position, null, 0, false, false);
-                    visual.figure.React(guest.stage, guest.satisfaction, guest.towelRequested);
-                    string caption = GuestCaption(guest);
-                    if (caption != visual.previousCaption)
+                    guestRequests.TryGetValue(guest.id, out string requestKind);
+                    visual.figure.React(guest.stage, guest.satisfaction, guest.towelRequested || !string.IsNullOrEmpty(requestKind));
+                    int partySize = guest.mvp == null ? 1 : guest.mvp.partySize;
+                    bool annoyed = guest.satisfaction < 45;
+                    if (visual.stage != guest.stage || visual.guestName != guest.name || visual.request != requestKind || visual.room != guest.room ||
+                        visual.party != partySize || visual.annoyed != annoyed || visual.luggage != guest.luggageDelivered || visual.towel != guest.towelRequested)
                     {
+                        string caption = GuestCaption(guest, requestKind);
                         visual.caption.text = caption;
-                        visual.caption.color = guest.satisfaction < 45 ? ColorOf(Ink.Red) : ColorOf(Ink.Dark);
-                        visual.previousCaption = caption;
+                        visual.caption.color = annoyed ? ColorOf(Ink.Red) : ColorOf(Ink.Dark);
+                        visual.stage = guest.stage; visual.guestName = guest.name; visual.request = requestKind; visual.room = guest.room;
+                        visual.party = partySize; visual.annoyed = annoyed; visual.luggage = guest.luggageDelivered; visual.towel = guest.towelRequested;
                         SetTargetLabel(visual.root, "Гость: " + (guest.name ?? ("№" + guest.id)));
                     }
                 }
@@ -155,9 +209,26 @@ namespace WorstHotel
                         root.transform.SetParent(living, false);
                         Target(root, item.id, ItemLabel(item.kind));
                         visual = new ItemVisual { root = root, colliders = root.GetComponentsInChildren<Collider>(true), kind = item.kind };
+                        visual.surfaces = root.GetComponentsInChildren<Renderer>(true);
+                        visual.originalMaterials = new Material[visual.surfaces.Length];
+                        for (int j = 0; j < visual.surfaces.Length; ++j) visual.originalMaterials[j] = visual.surfaces[j].sharedMaterial;
                         if (item.kind == "bag")
                             visual.ownerTag = Text(root.transform, "", new Vector3(0, .4f, -.218f), .065f, Ink.White);
                         items[item.id] = visual;
+                    }
+                    if (visual.size != item.size)
+                    {
+                        visual.root.transform.localScale = item.kind == "bag" && item.size == "large" ? new Vector3(1.3f, 1.35f, 1.25f) : Vector3.one;
+                        visual.size = item.size;
+                    }
+                    if (visual.condition != item.condition)
+                    {
+                        bool textile = item.kind == "towel" || item.kind == "linen";
+                        for (int j = 0; j < visual.surfaces.Length; ++j)
+                            if (visual.surfaces[j].GetComponent<TextMesh>() == null)
+                                visual.surfaces[j].sharedMaterial = textile && item.condition == "dirty" ? Mat(Ink.Dirty) : visual.originalMaterials[j];
+                        if (textile) SetTargetLabel(visual.root, item.condition == "dirty" ? (item.kind == "towel" ? "Грязное полотенце → корзина" : "Грязное бельё → корзина") : ItemLabel(item.kind));
+                        visual.condition = item.condition;
                     }
                     if (visual.ownerTag != null && visual.ownerGuest != item.ownerGuest)
                     {
@@ -191,7 +262,7 @@ namespace WorstHotel
                         // State uses a generic interaction height (.25 after drop). The model pivot
                         // is its foot, so rest it on the floor or on its documented luggage stand.
                         Vector3 at = item.position;
-                        at.y = item.placedRoom > 0 ? HotelLayout.RoomTarget("bag", item.placedRoom).y + .015f : item.placedRoom == -1 ? .325f : .025f;
+                        at.y = item.placedRoom > 0 ? HotelLayout.RoomTarget(item.kind == "coffee" || item.kind == "coffeecup" ? "coffee" : "bag", item.placedRoom).y + .015f : item.placedRoom == -1 ? .325f : .025f;
                         visual.root.transform.SetPositionAndRotation(at, Quaternion.identity);
                     }
                 }
@@ -209,16 +280,16 @@ namespace WorstHotel
             for (int z = -6; z <= 1; z += 2)
                 for (int x = -7; x <= 7; ++x)
                     Box(p, "Staggered floorboard end", new Vector3(x + .48f, .004f, z + (x % 2) * .65f), new Vector3(.94f, .006f, .014f), Ink.Wood);
-            Box(p, "Hall floor", new Vector3(0, -.12f, 9), new Vector3(3, .24f, 14), Ink.Oak, true);
-            Rug(p, new Vector3(0, .02f, 8.95f), new Vector2(2.1f, 13.6f));
-            for (int z = 3; z < 16; z += 2)
+            Box(p, "Hall floor", new Vector3(0, -.12f, 12.5f), new Vector3(3, .24f, 21), Ink.Oak, true);
+            Rug(p, new Vector3(0, .02f, 12.45f), new Vector2(2.1f, 20.6f));
+            for (int z = 3; z < 23; z += 2)
             {
                 GameObject diamond = Box(p, "Runner diamond", new Vector3(0, .039f, z), new Vector3(.22f, .008f, .22f), Ink.Brass);
                 diamond.transform.localRotation = Quaternion.Euler(0, 45, 0);
             }
-            Wall(p, new Vector3(-7.9f, 0, 4.5f), new Vector3(.2f, 3.6f, 23));
-            Wall(p, new Vector3(7.9f, 0, 4.5f), new Vector3(.2f, 3.6f, 23));
-            Wall(p, new Vector3(0, 0, 16.1f), new Vector3(16, 3.6f, .2f));
+            Wall(p, new Vector3(-7.9f, 0, 8), new Vector3(.2f, 3.6f, 30));
+            Wall(p, new Vector3(7.9f, 0, 8), new Vector3(.2f, 3.6f, 30));
+            Wall(p, new Vector3(0, 0, 23.1f), new Vector3(16, 3.6f, .2f));
             Wall(p, new Vector3(-4.95f, 0, -7), new Vector3(5.9f, 3.6f, .2f));
             Wall(p, new Vector3(4.95f, 0, -7), new Vector3(5.9f, 3.6f, .2f));
             Box(p, "Entrance lintel", new Vector3(0, 3.17f, -7), new Vector3(4, .86f, .24f), Ink.Wood, true);
@@ -228,26 +299,22 @@ namespace WorstHotel
             Box(p, "Porch left rail", new Vector3(-4.05f, .5f, -8.25f), new Vector3(.16f, 1, 2.6f), Ink.Wood, true);
             Box(p, "Porch right rail", new Vector3(4.05f, .5f, -8.25f), new Vector3(.16f, 1, 2.6f), Ink.Wood, true);
             Box(p, "Lobby ceiling", new Vector3(0, 3.65f, -2.5f), new Vector3(15.8f, .18f, 9), Ink.Cream, true);
-            Box(p, "Hall ceiling", new Vector3(0, 3.65f, 9), new Vector3(3, .18f, 14), Ink.Cream, true);
+            Box(p, "Hall ceiling", new Vector3(0, 3.65f, 12.5f), new Vector3(3, .18f, 21), Ink.Cream, true);
             for (int sign = -1; sign <= 1; sign += 2)
             {
                 Wall(p, new Vector3(sign * 4.7f, 0, 2), new Vector3(6.4f, 3.6f, .18f));
                 Wall(p, new Vector3(sign * 4.7f, 0, 9), new Vector3(6.4f, 3.6f, .18f));
-                foreach (float z in new[] { 3.375f, 9f, 14.625f })
-                    Wall(p, new Vector3(sign * 1.5f, 0, z), new Vector3(.18f, 3.6f, z == 9 ? 5.5f : 2.75f));
-                foreach (float z in new[] { 5.5f, 12.5f })
+                Wall(p, new Vector3(sign * 4.7f, 0, 16), new Vector3(6.4f, 3.6f, .18f));
+                foreach (float z in new[] { 3.375f, 9f, 16f, 21.625f })
+                    Wall(p, new Vector3(sign * 1.5f, 0, z), new Vector3(.18f, 3.6f, z == 9 || z == 16 ? 5.5f : 2.75f));
+                foreach (float z in new[] { 5.5f, 12.5f, 19.5f })
                     Box(p, "Portal lintel", new Vector3(sign * 1.5f, 3.12f, z), new Vector3(.24f, .96f, 1.5f), Ink.Plaster, true);
-                for (int z = 3; z <= 15; z += 7)
+                for (int z = 3; z <= 22; z += 7)
                 {
                     Frame(p, new Vector3(sign * 1.387f, 2.05f, z + .5f), sign * 90, z == 3 ? "ТИШЕ ЕДЕШЬ" : "СЛАДКИХ СНОВ", .83f, .76f);
                 }
             }
-            Box(p, "Future elevator surround", new Vector3(0, 1.36f, 15.95f), new Vector3(2.2f, 2.72f, .18f), Ink.Wood, true);
-            Box(p, "Future lift left", new Vector3(-.47f, 1.35f, 15.83f), new Vector3(.91f, 2.45f, .08f), Ink.Metal);
-            Box(p, "Future lift right", new Vector3(.47f, 1.35f, 15.83f), new Vector3(.91f, 2.45f, .08f), Ink.Metal);
-            Text(p, "КОГДА-НИБУДЬ: ЭТАЖ 2", new Vector3(0, 2.99f, 15.79f), .092f, Ink.Dark);
-            Text(p, "105 / 106\nСКОРО. НАВЕРНОЕ.", new Vector3(0, 1.63f, 15.74f), .12f, Ink.Cream);
-            Box(p, "Lift caution stripe", new Vector3(0, .9f, 15.71f), new Vector3(1.93f, .13f, .025f), Ink.Gold);
+            Frame(p, new Vector3(0, 2, 22.97f), 0, "ГРАНД ОТЕЛЬ\nЗДЕСЬ СТАНОВИТСЯ ЛУЧШЕ", 2.2f, 1.1f);
         }
 
         void BuildLobby()
@@ -358,6 +425,79 @@ namespace WorstHotel
             Lamp(p, new Vector3(-4.8f, 3.05f, -2.7f), .5f);
         }
 
+        void BuildServices()
+        {
+            mvpServices = Group(living, "MVP service stations");
+            Transform utility = Group(mvpServices, "Southwest water and power station");
+            Box(utility, "Utility station backboard", new Vector3(-6.8f, 1.15f, -5.66f), new Vector3(1.97f, 1.8f, .12f), Ink.Wood, true);
+            Text(utility, "ТЕХНИЧЕСКАЯ СЛУЖБА", new Vector3(-6.8f, 2.2f, -5.57f), .115f, Ink.Cream, 180);
+            Vector3 waterAt = HotelLayout.Target("utility_water");
+            Transform water = Group(utility, "Water main", waterAt); water.localRotation = Quaternion.Euler(0, 180, 0);
+            Tube(water, "Water main pipe", new Vector3(0, -.68f, .1f), new Vector3(0, .43f, .1f), .095f, Ink.Metal);
+            GameObject wheel = Cylinder(water, "Water shutoff wheel", new Vector3(0, 0, -.06f), new Vector3(.38f, .075f, .38f), Ink.Teal, true);
+            wheel.transform.localRotation = Quaternion.Euler(90, 0, 0);
+            for (int i = -1; i <= 1; i += 2)
+                Tube(water, "Valve wheel spokes", new Vector3(i * -.16f, -.16f, -.11f), new Vector3(i * .16f, .16f, -.11f), .035f, Ink.Brass);
+            Target(water.gameObject, "utility_water", "Общая подача воды — ремонт");
+            waterService = BuildEquipmentPanel(utility, "utility_water", water.gameObject, waterAt, new Vector3(0, .62f, .08f));
+            waterService.root.transform.localRotation = Quaternion.Euler(0, 180, 0);
+            Vector3 powerAt = HotelLayout.Target("utility_power");
+            Transform power = Group(utility, "Power distribution", powerAt); power.localRotation = Quaternion.Euler(0, 180, 0);
+            Rounded(power, "Fuse cabinet", Vector3.zero, new Vector3(.57f, .82f, .23f), Ink.Metal, true);
+            for (int i = 0; i < 3; ++i)
+                Rounded(power, "Breaker switch", new Vector3((i - 1) * .16f, .04f, -.15f), new Vector3(.085f, .23f, .055f), Ink.Dark);
+            Text(power, "220 В", new Vector3(0, -.24f, -.143f), .09f, Ink.Gold);
+            Target(power.gameObject, "utility_power", "Общее питание — ремонт");
+            powerService = BuildEquipmentPanel(utility, "utility_power", power.gameObject, powerAt, new Vector3(0, .62f, .08f));
+            powerService.root.transform.localRotation = Quaternion.Euler(0, 180, 0);
+
+            Transform coffee = Group(mvpServices, "Lobby coffee station", HotelLayout.Target("coffee"));
+            Rounded(coffee, "Coffee cabinet", new Vector3(0, -.55f, 0), new Vector3(1.2f, .86f, .67f), Ink.Teal, true);
+            Rounded(coffee, "Coffee counter", new Vector3(0, -.06f, 0), new Vector3(1.3f, .12f, .79f), Ink.Oak, true);
+            Transform basic = Group(coffee, "Manual coffee service"); basicCoffee = basic.gameObject;
+            Cylinder(basic, "Insulated coffee pot", new Vector3(-.25f, .23f, .02f), new Vector3(.32f, .43f, .32f), Ink.Metal, true);
+            Cylinder(basic, "Coffee pot lid", new Vector3(-.25f, .46f, .02f), new Vector3(.36f, .045f, .36f), Ink.Dark);
+            Handle(basic, new Vector3(-.48f, .14f, .03f), .12f, .19f, Ink.Dark);
+            Tube(basic, "Coffee pot spout", new Vector3(-.14f, .38f, .02f), new Vector3(-.04f, .43f, -.1f), .065f, Ink.Metal);
+            Transform machine = Group(coffee, "Upgraded coffee machine"); upgradedCoffee = machine.gameObject;
+            Rounded(machine, "Espresso machine", new Vector3(-.16f, .29f, .05f), new Vector3(.63f, .55f, .45f), Ink.Burgundy, true);
+            Box(machine, "Coffee machine front", new Vector3(-.16f, .27f, -.193f), new Vector3(.52f, .36f, .03f), Ink.Metal);
+            Tube(machine, "Coffee nozzle", new Vector3(-.16f, .25f, -.23f), new Vector3(-.16f, .14f, -.23f), .045f, Ink.Brass);
+            Ball(machine, "Coffee ready light", new Vector3(.02f, .37f, -.225f), Vector3.one * .047f, Ink.Green);
+            for (int i = 0; i < 3; ++i) Cup(coffee, new Vector3(.25f, .017f + i * .06f, .03f));
+            Text(coffee, "КОФЕ ДЛЯ ГОСТЕЙ", new Vector3(0, .88f, -.03f), .11f, Ink.Burgundy);
+            coffeeStock = Text(coffee, "", new Vector3(0, -.25f, -.35f), .074f, Ink.Cream);
+            Target(coffee.gameObject, "coffee", "Приготовить кофе гостю");
+            SetActive(upgradedCoffee, false); mvpServices.gameObject.SetActive(false);
+        }
+
+        void ApplyServices(HotelState state)
+        {
+            bool mvp = state.mvp != null; SetActive(mvpServices.gameObject, mvp);
+            if (!mvp) return;
+            MvpUtilityState utility = state.mvp.utilities;
+            ApplyUtility(waterService, utility != null && utility.waterFault, utility == null ? 0 : utility.waterWear, "НЕТ ВОДЫ");
+            ApplyUtility(powerService, utility != null && utility.powerFault, utility == null ? 0 : utility.powerWear, "НЕТ ПИТАНИЯ");
+            SetActive(basicCoffee, !state.mvp.coffeeMachine); SetActive(upgradedCoffee, state.mvp.coffeeMachine);
+            if (previousCoffee != state.mvp.coffeeStock)
+            {
+                coffeeStock.text = "ПОРЦИЙ: " + state.mvp.coffeeStock;
+                previousCoffee = state.mvp.coffeeStock;
+            }
+        }
+
+        static void ApplyUtility(EquipmentVisual visual, bool fault, float wear, string label)
+        {
+            SetActive(visual.failure, fault);
+            int code = fault ? 2 : 0;
+            if (visual.code != code)
+            {
+                visual.status.text = fault ? label : "ПОДАЧА ЕСТЬ";
+                visual.indicator.sharedMaterial = Mat(fault ? Ink.Red : Ink.Green); visual.code = code;
+            }
+            for (int i = 0; i < visual.wear.Count; ++i) SetActive(visual.wear[i], wear > (i + 1) * .25f);
+        }
+
         void BuildRoom(int n)
         {
             Vector3 c = HotelLayout.RoomCenter(n);
@@ -365,6 +505,7 @@ namespace WorstHotel
             Transform p = Group(architecture, "Room " + n);
             Transform dynamicRoom = Group(living, "Room " + n + " / conditions");
             RoomVisual visual = new RoomVisual(); rooms.Add(n, visual);
+            visual.conditions = dynamicRoom.gameObject;
             Box(p, "Bedroom floor", c + new Vector3(0, -.12f, 0), new Vector3(6.25f, .24f, 6.85f), Ink.Oak, true);
             Box(p, "Bedroom ceiling", c + new Vector3(0, 3.65f, 0), new Vector3(6.25f, .18f, 6.85f), Ink.Cream, true);
             for (int i = 0; i < 8; ++i)
@@ -374,25 +515,32 @@ namespace WorstHotel
                 for (int z = 0; z < 3; ++z)
                     Box(p, "Washroom tile", c + new Vector3(s * (-1.8f + x * .91f), .01f, -2.98f + z * .64f),
                         new Vector3(.88f, .016f, .61f), (x + z) % 2 == 0 ? Ink.Ceramic : Ink.Cream);
+            p = Group(living, "Room " + n + " / furnishings");
+            visual.furnishings = p.gameObject;
             // Bed runs east/west. Its nearest edge is z = centre + .36, leaving the NPC centreline clear.
             Vector3 bedAt = HotelLayout.RoomTarget("bed", n);
-            Transform bed = Group(p, "Bed " + n, bedAt);
+            Transform bedTarget = Group(dynamicRoom, "Bed " + n, bedAt);
+            Transform bed = Group(bedTarget, "Capacity geometry");
+            visual.bedGeometry = bed;
             Rounded(bed, "Timber bed frame", new Vector3(0, -.34f, 0), new Vector3(2.65f, .28f, 1.47f), Ink.Wood, true);
             Rounded(bed, "Mattress ticking", new Vector3(0, -.1f, 0), new Vector3(2.5f, .29f, 1.42f), Ink.Linen, true);
             Rounded(bed, "Scalloped headboard", new Vector3(s * 1.24f, .02f, 0), new Vector3(.16f, 1.2f, 1.54f), Ink.Wood, true);
             for (int j = -1; j <= 1; ++j)
-                Rounded(bed, "Upholstered headboard inset", new Vector3(s * 1.135f, .2f, j * .44f), new Vector3(.052f, .57f, .34f), Ink.Burgundy);
+            {
+                Renderer fabric = Rounded(bed, "Upholstered headboard inset", new Vector3(s * 1.135f, .2f, j * .44f), new Vector3(.052f, .57f, .34f), Ink.Burgundy).GetComponent<Renderer>();
+                if (j == 0) visual.bedFabric = fabric;
+            }
             for (int x = -1; x <= 1; x += 2)
                 for (int z = -1; z <= 1; z += 2)
                     Cylinder(bed, "Turned bed foot", new Vector3(x * 1.08f, -.55f, z * .58f), new Vector3(.13f, .3f, .13f), Ink.Wood);
-            Target(bed.gameObject, "bed_" + n, "Кровать — снять / застелить бельё");
-            Transform clean = Group(dynamicRoom, "Clean bedding", bedAt);
+            Target(bedTarget.gameObject, "bed_" + n, "Кровать — снять / застелить бельё");
+            Transform clean = Group(bed, "Clean bedding");
             Rounded(clean, "Clean duvet", new Vector3(-s * .17f, .075f, 0), new Vector3(2.1f, .19f, 1.4f), Ink.White);
-            Rounded(clean, "Burgundy runner", new Vector3(-s * .78f, .185f, 0), new Vector3(.43f, .045f, 1.43f), Ink.Burgundy);
+            visual.linenBand = Rounded(clean, "Burgundy runner", new Vector3(-s * .78f, .185f, 0), new Vector3(.43f, .045f, 1.43f), Ink.Burgundy).GetComponent<Renderer>();
             for (int z = -1; z <= 1; z += 2)
                 Rounded(clean, "Plump pillow", new Vector3(s * .9f, .125f, z * .35f), new Vector3(.5f, .24f, .57f), Ink.White);
             visual.clean = clean.gameObject;
-            Transform dirty = Group(dynamicRoom, "Dirty bedding", bedAt);
+            Transform dirty = Group(bed, "Dirty bedding");
             Rounded(dirty, "Crumpled sheet", new Vector3(-s * .21f, .085f, .01f), new Vector3(1.99f, .18f, 1.36f), Ink.Dirty);
             for (int j = 0; j < 5; ++j)
             {
@@ -402,13 +550,17 @@ namespace WorstHotel
             Ball(dirty, "Tea stain", new Vector3(.25f, .304f, -.35f), new Vector3(.36f, .014f, .26f), Ink.Wood);
             Rounded(dirty, "Forgotten pillow", new Vector3(s * .83f, .15f, .35f), new Vector3(.55f, .24f, .55f), Ink.Linen).transform.localRotation = Quaternion.Euler(0, 24, 0);
             visual.dirty = dirty.gameObject;
-            Transform upgraded = Group(dynamicRoom, "Bed upgrade / brass finials", bedAt);
+            Transform upgraded = Group(bed, "Bed upgrade / brass finials");
             for (int z = -1; z <= 1; z += 2)
             {
                 Cylinder(upgraded, "Upgrade headboard post", new Vector3(s * 1.23f, .22f, z * .77f), new Vector3(.08f, 1.27f, .08f), Ink.Brass);
                 Ball(upgraded, "Upgrade finial", new Vector3(s * 1.23f, .9f, z * .77f), Vector3.one * .17f, Ink.Brass);
             }
             visual.upgraded = upgraded.gameObject;
+            Transform luxury = Group(clean, "Premium linen embroidery");
+            for (int j = -1; j <= 1; j += 2)
+                Box(luxury, "Linen embroidered edge", new Vector3(-s * .12f, .18f, j * .57f), new Vector3(1.86f, .012f, .023f), Ink.Brass);
+            visual.luxuryLinen = luxury.gameObject; SetActive(visual.luxuryLinen, false);
 
             Vector3 sinkAt = HotelLayout.RoomTarget("sink", n);
             Transform sink = Group(p, "Washstand " + n, sinkAt);
@@ -422,6 +574,7 @@ namespace WorstHotel
             for (int j = -1; j <= 1; j += 2)
                 Ball(sink, "Cabinet knob", new Vector3(j * .14f, -.43f, .353f), Vector3.one * .085f, Ink.Brass);
             Target(sink.gameObject, "sink_" + n, "Раковина — ремонт с ящиком инструментов");
+            visual.equipment["sink"] = BuildEquipmentPanel(dynamicRoom, "sink_" + n, sink.gameObject, sinkAt, new Vector3(0, .62f, .07f));
             // A framed blue mirror and tiled splashback, on the actual south wall.
             Vector3 mirrorAt = new Vector3(sinkAt.x, 1.8f, c.z - 3.38f);
             Rounded(p, "Mirror brass frame", mirrorAt, new Vector3(1.25f, 1.24f, .09f), Ink.Brass);
@@ -484,46 +637,260 @@ namespace WorstHotel
             Text(luggage, "БАГАЖ", new Vector3(0, -.03f, -.365f), .065f, Ink.Cream);
             Target(luggage.gameObject, "bag_" + n, "Поставить багаж гостя");
 
-            Toilet(p, c + new Vector3(-s * 1.65f, 0, -2.7f));
-            Rounded(p, "Bedside cabinet", c + new Vector3(s * 2.05f, .37f, 2.46f), new Vector3(1.1f, .74f, .76f), Ink.Wood, true);
-            Lamp(p, c + new Vector3(s * 2.05f, 1.27f, 2.46f), .34f);
-            Cup(p, c + new Vector3(s * 1.8f, .78f, 2.46f));
+            Transform legacy = Group(p, "Legacy room fixtures"); visual.legacyFixtures = legacy.gameObject;
+            Toilet(legacy, c + new Vector3(-s * 1.65f, 0, -2.7f));
+            Rounded(legacy, "Bedside cabinet", c + new Vector3(s * 2.05f, .37f, 2.46f), new Vector3(1.1f, .74f, .76f), Ink.Wood, true);
+            Lamp(legacy, c + new Vector3(s * 2.05f, 1.27f, 2.46f), .34f);
+            Cup(legacy, c + new Vector3(s * 1.8f, .78f, 2.46f));
             RoomWindow(p, c + new Vector3(s * 3.075f, 2.04f, .1f), s);
             Frame(p, c + new Vector3(s * .1f, 2.22f, 3.375f), 0, n % 2 == 0 ? "ВЫ ПРЕКРАСНО\nВЫГЛЯДИТЕ.\nОТЕЛЬ СТАРАЕТСЯ." : "МОРЕ ДАЛЕКО.\nЗАТО КРОВАТЬ\nБЛИЗКО.", 1.4f, 1.06f);
             // A tiny television on the inner wall leaves the crossing route unobstructed.
-            Transform tv = Group(p, "Old television", c + new Vector3(-s * 2.96f, 1.9f, 2.26f));
+            Transform tv = Group(legacy, "Old television", c + new Vector3(-s * 2.96f, 1.9f, 2.26f));
             tv.localRotation = Quaternion.Euler(0, -s * 90, 0);
             Rounded(tv, "TV casing", Vector3.zero, new Vector3(1.13f, .73f, .2f), Ink.Dark);
             Rounded(tv, "TV sleepy screen", new Vector3(-.055f, .02f, -.12f), new Vector3(.86f, .52f, .03f), Ink.Teal);
             Text(tv, "НЕТ СИГНАЛА", new Vector3(-.055f, .02f, -.144f), .063f, Ink.Foam);
+            BuildRoomMvp(n, visual, dynamicRoom);
 
             Vector3 doorAt = HotelLayout.Door(n);
-            Transform door = Group(p, "Always open room portal " + n, doorAt);
+            Transform door = Group(architecture, "Room portal " + n, doorAt);
             for (int j = -1; j <= 1; j += 2)
                 Box(door, "Portal jamb outside clear opening", new Vector3(0, 1.31f, j * .805f), new Vector3(.32f, 2.62f, .11f), Ink.Wood, true);
             Box(door, "Portal crown", new Vector3(0, 2.66f, 0), new Vector3(.35f, .15f, 1.74f), Ink.Oak, true);
             // Leaf is parked fully inside the room, parallel to the walking axis, never across the opening.
-            Rounded(door, "Door leaf fixed open", new Vector3(s * .84f, 1.23f, .88f), new Vector3(1.47f, 2.46f, .12f), Ink.Wood, true);
-            Box(door, "Open leaf inset", new Vector3(s * .84f, 1.31f, .801f), new Vector3(1.15f, 1.83f, .035f), Ink.Oak);
-            Ball(door, "Door handle", new Vector3(s * 1.39f, 1.06f, .765f), Vector3.one * .085f, Ink.Brass);
+            Transform openLeaf = Group(living, "Open door " + n, doorAt); visual.openDoor = openLeaf.gameObject;
+            Rounded(openLeaf, "Door leaf fixed open", new Vector3(s * .84f, 1.23f, .88f), new Vector3(1.47f, 2.46f, .12f), Ink.Wood, true);
+            Box(openLeaf, "Open leaf inset", new Vector3(s * .84f, 1.31f, .801f), new Vector3(1.15f, 1.83f, .035f), Ink.Oak);
+            Ball(openLeaf, "Door handle", new Vector3(s * 1.39f, 1.06f, .765f), Vector3.one * .085f, Ink.Brass);
+            Target(openLeaf.gameObject, "door_" + n, "Номер " + n + " — доступность");
+            Transform locked = Group(living, "Locked door " + n, HotelLayout.RoomTarget("door", n));
+            Rounded(locked, "Locked room barrier", new Vector3(0, .3f, 0), new Vector3(.2f, 2.6f, 1.5f), Ink.Wood, true);
+            Box(locked, "Locked room brass band", new Vector3(-s * .115f, .3f, 0), new Vector3(.027f, .15f, 1.34f), Ink.Brass);
+            Text(locked, "КРЫЛО ЗАКРЫТО\nПОКУПКА НА ДОСКЕ", new Vector3(-s * .132f, .77f, 0), .082f, Ink.Cream, s * 90);
+            Target(locked.gameObject, "door_" + n, "Номер " + n + " — требуется покупка");
+            visual.lockedDoor = locked.gameObject;
             Rounded(door, "Room number plaque", new Vector3(-s * .165f, 1.74f, 1.04f), new Vector3(.04f, .49f, .61f), Ink.Burgundy, true);
             Text(door, n.ToString(), new Vector3(-s * .19f, 1.77f, 1.04f), .205f, Ink.Cream, s * 90);
             Target(door.gameObject, "door_" + n, "Номер " + n + " — доступность");
-            visual.status = Text(dynamicRoom, "ГОТОВ", doorAt + new Vector3(-s * .197f, 1.4f, 1.04f), .064f, Ink.Teal, s * 90);
-            visual.lamp = Ball(dynamicRoom, "Room status lamp", doorAt + new Vector3(-s * .191f, 2.09f, 1.04f), new Vector3(.075f, .1f, .1f), Ink.Green).GetComponent<Renderer>();
-            Lamp(p, c + new Vector3(0, 3.15f, -.3f), .57f);
+            visual.status = Text(living, "ГОТОВ", doorAt + new Vector3(-s * .197f, 1.4f, 1.04f), .064f, Ink.Teal, s * 90);
+            visual.roomInfo = Text(living, "", doorAt + new Vector3(-s * .197f, 1.25f, 1.04f), .045f, Ink.Dark, s * 90);
+            visual.lamp = Ball(living, "Room status lamp", doorAt + new Vector3(-s * .191f, 2.09f, 1.04f), new Vector3(.075f, .1f, .1f), Ink.Green).GetComponent<Renderer>();
+            Transform ceiling = Lamp(p, c + new Vector3(0, 3.15f, -.3f), .57f);
+            visual.ceilingGlow = ceiling.Find("Warm bulb").GetComponent<Renderer>();
             SetActive(visual.dirty, false); SetActive(visual.leak, false); SetActive(visual.trash, false);
             SetActive(visual.upgraded, false); SetActive(visual.water.gameObject, false);
+            SetOwned(visual, n <= 104);
         }
 
-        void ApplyRoom(RoomState room, RoomVisual v)
+        void BuildRoomMvp(int n, RoomVisual v, Transform conditions)
         {
+            Vector3 c = HotelLayout.RoomCenter(n); float s = n % 2 == 1 ? -1 : 1;
+            Transform p = Group(conditions, "MVP room fixtures " + n); v.mvpFixtures = p.gameObject;
+            Vector3 toiletAt = HotelLayout.RoomTarget("toilet", n);
+            Transform toilet = Group(p, "Toilet " + n, toiletAt);
+            Toilet(toilet, new Vector3(0, -.55f, 0));
+            Target(toilet.gameObject, "toilet_" + n, "Унитаз — вантуз / ремонт");
+            v.equipment["toilet"] = BuildEquipmentPanel(p, "toilet_" + n, toilet.gameObject, toiletAt, new Vector3(0, .8f, -.18f));
+            Ball(v.equipment["toilet"].failure.transform, "Blocked toilet contents", new Vector3(0, -.8f, .34f), new Vector3(.3f, .035f, .38f), Ink.Dirty);
+            // TV is suspended above walking height. Its fixture root retains the exact logical target.
+            Vector3 tvAt = HotelLayout.RoomTarget("tv", n);
+            Transform tv = Group(p, "Television " + n, tvAt);
+            Vector3 screenAt = new Vector3(s * .4f, .96f, .45f);
+            v.tvBezel = Rounded(tv, "TV case", screenAt, new Vector3(1.1f, .72f, .19f), Ink.Dark, true).GetComponent<Renderer>();
+            Box(tv, "Ceiling TV bracket", screenAt + new Vector3(0, .55f, .04f), new Vector3(.08f, .47f, .08f), Ink.Metal, true);
+            Renderer screen = Rounded(tv, "Powered TV screen", screenAt + new Vector3(0, 0, -.112f), new Vector3(.91f, .54f, .028f), Ink.Teal).GetComponent<Renderer>();
+            Target(tv.gameObject, "tv_" + n, "Телевизор — ремонт");
+            EquipmentVisual television = BuildEquipmentPanel(p, "tv_" + n, tv.gameObject, tvAt, new Vector3(s * .4f, .59f, .3f));
+            v.equipment["tv"] = television;
+            Transform broadcast = Group(tv, "TV broadcast", screenAt + new Vector3(0, 0, -.138f));
+            Text(broadcast, "ГРАНД-ТВ", new Vector3(0, .1f, -.008f), .11f, Ink.Foam);
+            for (int i = 0; i < 4; ++i)
+                Box(broadcast, "Broadcast colour bar", new Vector3(-.3f + .2f * i, -.12f, 0), new Vector3(.19f, .13f, .008f), i % 2 == 0 ? Ink.Gold : Ink.Blue);
+            television.working = broadcast.gameObject;
+            television.surface = screen;
+            Transform tvTrim = Group(tv, "Upgraded TV trim", screenAt);
+            for (int side = -1; side <= 1; side += 2)
+                Box(tvTrim, "TV quality trim", new Vector3(side * .54f, 0, -.106f), new Vector3(.025f, .64f, .024f), Ink.Brass);
+            v.tvUpgrade = tvTrim.gameObject;
+            // A wall shelf leaves the enlarged bed and the north-side approach clear.
+            Vector3 lampAt = HotelLayout.RoomTarget("lamp", n);
+            Transform lamp = Group(p, "Room lamp " + n, lampAt);
+            Box(lamp, "Lamp wall shelf", new Vector3(s * .25f, -.44f, 0), new Vector3(.57f, .08f, .46f), Ink.Oak, true);
+            Transform shade = Lamp(lamp, new Vector3(s * .25f, 0, 0), .34f);
+            v.lampGlow = shade.Find("Warm bulb").GetComponent<Renderer>();
+            BoxCollider lampHit = shade.gameObject.AddComponent<BoxCollider>(); lampHit.size = new Vector3(.37f, .28f, .37f);
+            Target(lamp.gameObject, "lamp_" + n, "Лампа — ремонт");
+            v.equipment["lamp"] = BuildEquipmentPanel(p, "lamp_" + n, lamp.gameObject, lampAt, new Vector3(0, .36f, 0));
+
+            Vector3 coffeeAt = HotelLayout.RoomTarget("coffee", n);
+            Transform coffee = Group(p, "Coffee service " + n, coffeeAt);
+            Rounded(coffee, "Coffee table top", new Vector3(0, -.065f, 0), new Vector3(.62f, .1f, .55f), Ink.Oak, true);
+            Cylinder(coffee, "Coffee table column", new Vector3(0, -.44f, 0), new Vector3(.1f, .76f, .1f), Ink.Wood, true);
+            Cylinder(coffee, "Coffee table foot", new Vector3(0, -.79f, 0), new Vector3(.43f, .08f, .43f), Ink.Wood, true);
+            Text(coffee, "КОФЕ ГОСТЮ", new Vector3(0, -.055f, -.283f), .058f, Ink.Cream);
+            Target(coffee.gameObject, "coffee_" + n, "Подать кофе гостю");
+            Transform delivered = Group(coffee, "Delivered coffee", Vector3.up * .01f);
+            Cup(delivered, Vector3.zero); v.deliveredCoffee = delivered.gameObject;
+            SetActive(v.deliveredCoffee, false);
+
+            Transform clean = Group(p, "Floor cleaning " + n, HotelLayout.RoomTarget("clean", n));
+            BoxCollider cleanHit = clean.gameObject.AddComponent<BoxCollider>(); cleanHit.size = new Vector3(1.3f, .025f, .8f);
+            for (int i = 0; i < 10; ++i)
+            {
+                float a = i * 2.39996f;
+                GameObject spot = Ball(clean, "Dry dirt patch " + i, new Vector3(Mathf.Sin(a) * (i < 3 ? .34f : 1.1f), -.034f, Mathf.Cos(a) * .75f), new Vector3(.22f + (i % 3) * .08f, .015f, .18f), Ink.Dirty);
+                spot.AddComponent<BoxCollider>();
+                v.dirt.Add(spot); SetActive(spot, false);
+            }
+            Target(clean.gameObject, "clean_" + n, "Грязный пол — уборка шваброй");
+            Transform laundry = Group(p, "Dirty towel collection " + n, HotelLayout.RoomTarget("dirtytowel", n));
+            Rounded(laundry, "Laundry catch tray", new Vector3(0, -.15f, 0), new Vector3(.59f, .055f, .43f), Ink.Wood, true);
+            for (int i = 0; i < 3; ++i)
+            {
+                GameObject towel = MakeItem("dirtytowel"); towel.name = "Used towel " + i; towel.transform.SetParent(laundry, false);
+                towel.transform.localPosition = new Vector3((i % 2) * .025f, -.12f + i * .07f, 0);
+                towel.transform.localScale = Vector3.one * .85f;
+                v.dirtyTowels.Add(towel); SetActive(towel, false);
+            }
+            Target(laundry.gameObject, "dirtytowel_" + n, "Собрать грязные полотенца");
+            Transform overflow = Group(p, "Bin overflow " + n, HotelLayout.RoomTarget("trash", n));
+            for (int i = 0; i < 3; ++i)
+            {
+                GameObject paper = Ball(overflow, "Overflow litter " + i, new Vector3(-.3f + i * .26f, -.26f, .34f), new Vector3(.2f, .08f, .2f), Ink.Paper);
+                v.overflow.Add(paper); SetActive(paper, false);
+            }
+            v.finishWall = Box(p, "Selectable wall finish", c + new Vector3(0, 1.75f, -3.38f), new Vector3(5.95f, 1.28f, .018f), Ink.Plaster).GetComponent<Renderer>();
+            v.finishRug = Box(p, "Selectable rug inset", c + new Vector3(s * .35f, .043f, 1.16f), new Vector3(2.7f, .008f, 1.7f), Ink.Burgundy).GetComponent<Renderer>();
+            SetActive(v.mvpFixtures, false);
+        }
+
+        static EquipmentVisual BuildEquipmentPanel(Transform parent, string id, GameObject model, Vector3 at, Vector3 offset)
+        {
+            Transform root = Group(parent, "Equipment status " + id, at);
+            Transform panel = Group(root, "Service indicator", offset);
+            Box(panel, "Service label backing", Vector3.zero, new Vector3(.64f, .2f, .025f), Ink.Cream, true);
+            var v = new EquipmentVisual { root = root.gameObject, model = model };
+            v.indicator = Ball(panel, "Equipment indicator", new Vector3(-.26f, 0, -.027f), new Vector3(.055f, .055f, .025f), Ink.Green).GetComponent<Renderer>();
+            v.status = Text(panel, "ИСПРАВНО", new Vector3(.035f, 0, -.028f), .055f, Ink.Dark);
+            Transform wear = Group(panel, "Wear gauge", new Vector3(0, -.14f, 0));
+            for (int i = 0; i < 3; ++i)
+            {
+                GameObject bar = Box(wear, "Wear mark " + i, new Vector3((i - 1) * .15f, 0, 0), new Vector3(.12f, .022f, .022f), Ink.Gold);
+                v.wear.Add(bar); SetActive(bar, false);
+            }
+            Transform failure = Group(root, "Local fault", offset);
+            Tube(failure, "Fault slash", new Vector3(-.12f, .2f, 0), new Vector3(.12f, .39f, 0), .045f, Ink.Red);
+            Tube(failure, "Fault slash", new Vector3(.12f, .2f, 0), new Vector3(-.12f, .39f, 0), .045f, Ink.Red);
+            BoxCollider faultHit = failure.gameObject.AddComponent<BoxCollider>();
+            faultHit.center = new Vector3(0, .3f, 0); faultHit.size = new Vector3(.32f, .27f, .05f);
+            v.failure = failure.gameObject;
+            v.unavailable = Box(root, "Utility unavailable", offset + new Vector3(0, .29f, 0), new Vector3(.31f, .1f, .035f), Ink.Gold, true);
+            v.missing = Box(root, "Empty equipment slot", offset + new Vector3(0, .29f, 0), new Vector3(.36f, .18f, .035f), Ink.Dark, true);
+            Target(root.gameObject, id, "Оборудование / сервис");
+            SetActive(v.failure, false); SetActive(v.unavailable, false); SetActive(v.missing, false);
+            return v;
+        }
+
+        static bool ApplyEquipment(EquipmentVisual v, MvpEquipmentState equipment, bool utilityFault, string utilityLabel, bool legacy = false)
+        {
+            bool installed = legacy || (equipment != null && equipment.installed);
+            bool broken = !legacy && equipment != null && equipment.localFault;
+            int code = !installed ? 3 : broken ? 2 : utilityFault ? 1 : 0;
+            SetActive(v.model, installed); SetActive(v.failure, installed && broken);
+            SetActive(v.unavailable, installed && utilityFault); SetActive(v.missing, !installed);
+            if (v.working != null) SetActive(v.working, code == 0);
+            if (v.surface != null) v.surface.sharedMaterial = Mat(code == 0 ? Ink.Teal : Ink.Dark);
+            if (v.code != code)
+            {
+                v.status.text = code == 3 ? "НЕТ ПРИБОРА" : code == 2 ? "МЕСТНАЯ ПОЛОМКА" : code == 1 ? utilityLabel : "ИСПРАВНО";
+                v.indicator.sharedMaterial = Mat(code == 3 ? Ink.Dark : code == 2 ? Ink.Red : code == 1 ? Ink.Gold : Ink.Green);
+                v.code = code;
+            }
+            float wear = equipment == null ? 0 : Mathf.Clamp01(equipment.wear);
+            for (int i = 0; i < v.wear.Count; ++i) SetActive(v.wear[i], installed && wear > (i + 1) * .25f);
+            return code == 0;
+        }
+
+        static MvpEquipmentState Equipment(RoomState room, string kind)
+        {
+            if (room.mvp == null || room.mvp.equipment == null) return null;
+            foreach (MvpEquipmentState equipment in room.mvp.equipment)
+                if (equipment != null && equipment.kind == kind) return equipment;
+            return null;
+        }
+
+        static void SetOwned(RoomVisual v, bool owned)
+        {
+            if (v.ownershipKnown && v.owned == owned) return;
+            SetActive(v.furnishings, owned); SetActive(v.conditions, owned);
+            SetActive(v.openDoor, owned); SetActive(v.lockedDoor, !owned);
+            v.owned = owned;
+            v.ownershipKnown = true;
+            if (!owned)
+            {
+                v.status.text = "НЕ КУПЛЕН"; v.status.color = ColorOf(Ink.Gold);
+                v.lamp.sharedMaterial = Mat(Ink.Gold); v.flag = -1;
+                if (v.roomLight != null) v.roomLight.enabled = false;
+            }
+        }
+
+        void ApplyRoom(HotelState state, RoomState room, RoomVisual v)
+        {
+            bool mvp = state.mvp != null && room.mvp != null;
+            SetOwned(v, mvp ? room.mvp.owned : room.number <= 104);
+            if (!v.owned) return;
+            SetActive(v.legacyFixtures, !mvp); SetActive(v.mvpFixtures, mvp);
+            SetActive(v.equipment["sink"].root, mvp);
+            bool powerFault = mvp && state.mvp.utilities != null && state.mvp.utilities.powerFault;
+            bool waterFault = mvp && state.mvp.utilities != null && state.mvp.utilities.waterFault;
+            bool equipmentFault = false, lampWorking = true;
+            foreach (var pair in v.equipment)
+            {
+                bool needsWater = pair.Key == "sink" || pair.Key == "toilet";
+                bool working = ApplyEquipment(pair.Value, Equipment(room, pair.Key), needsWater ? waterFault : powerFault,
+                    needsWater ? "НЕТ ВОДЫ" : "НЕТ ПИТАНИЯ", !mvp);
+                equipmentFault |= !working;
+                if (pair.Key == "lamp") lampWorking = working;
+            }
+            if (v.roomLight != null) v.roomLight.enabled = !powerFault && lampWorking;
+            v.lampGlow.sharedMaterial = Mat(lampWorking ? Ink.Glow : Ink.Dark);
+            v.ceilingGlow.sharedMaterial = Mat(lampWorking && !powerFault ? Ink.Glow : Ink.Dark);
+            int capacity = mvp ? Mathf.Max(1, room.mvp.capacity) : 1;
+            int bedQuality = mvp ? Mathf.Max(1, room.mvp.bedQuality) : room.upgraded ? 2 : 1;
+            int tvQuality = mvp ? Mathf.Max(0, room.mvp.tvQuality) : 1;
+            if (v.capacity != capacity || v.bedQuality != bedQuality || v.tvQuality != tvQuality)
+            {
+                v.bedGeometry.localScale = capacity >= 2 ? new Vector3(.78f, 1, 1.58f) : Vector3.one;
+                v.bedGeometry.localPosition = capacity >= 2 ? new Vector3(0, 0, .48f) : Vector3.zero;
+                v.bedFabric.sharedMaterial = Mat(bedQuality >= 3 ? Ink.Teal : bedQuality >= 2 ? Ink.Brass : Ink.Burgundy);
+                v.tvBezel.sharedMaterial = Mat(tvQuality >= 2 ? Ink.Metal : Ink.Dark);
+                SetActive(v.tvUpgrade, tvQuality >= 2);
+                v.roomInfo.text = capacity + (capacity == 1 ? " МЕСТО" : " МЕСТА") + "  К" + bedQuality + " / ТВ" + tvQuality;
+                v.capacity = capacity; v.bedQuality = bedQuality; v.tvQuality = tvQuality;
+            }
+            string finish = mvp ? room.mvp.finishId : "original";
+            if (v.finish != finish)
+            {
+                v.finishWall.sharedMaterial = Mat(finish == "warm" ? Ink.Cream : finish == "cool" ? Ink.Blue : Ink.Plaster);
+                v.finishRug.sharedMaterial = Mat(finish == "warm" ? Ink.Red : finish == "cool" ? Ink.Teal : Ink.Burgundy);
+                v.finish = finish;
+            }
+            bool linenUpgrade = mvp && state.mvp.betterLinen;
+            SetActive(v.luxuryLinen, linenUpgrade); v.linenBand.sharedMaterial = Mat(linenUpgrade ? Ink.Teal : Ink.Burgundy);
+            SetActive(v.deliveredCoffee, mvp && room.guestId != 0 && coffeeDelivered.Contains(room.guestId));
+            float dirtAmount = mvp ? Mathf.Clamp01(room.mvp.dirt) : 0;
+            int dirtyTowels = mvp ? room.mvp.dirtyTowels : 0;
+            for (int i = 0; i < v.dirt.Count; ++i) SetActive(v.dirt[i], dirtAmount > i / (float)v.dirt.Count + .001f);
+            for (int i = 0; i < v.dirtyTowels.Count; ++i) SetActive(v.dirtyTowels[i], dirtyTowels > i);
+            for (int i = 0; i < v.overflow.Count; ++i) SetActive(v.overflow[i], mvp && room.mvp.binFill > .65f + i * .11f);
             if (v.bed != room.bed)
             {
                 SetActive(v.clean, room.bed == 2); SetActive(v.dirty, room.bed == 1); v.bed = room.bed;
             }
-            SetActive(v.towel, room.towel); SetActive(v.trash, room.trash);
-            SetActive(v.leak, room.leak); SetActive(v.upgraded, room.upgraded);
+            SetActive(v.towel, room.towel); SetActive(v.trash, room.trash || (mvp && room.mvp.binFill > .1f));
+            MvpEquipmentState sink = Equipment(room, "sink");
+            SetActive(v.leak, room.leak && !waterFault && (!mvp || (sink != null && sink.installed)));
+            SetActive(v.upgraded, bedQuality >= 2);
             float water = Mathf.Clamp01(room.water);
             if (Mathf.Abs(water - v.waterAmount) > .001f)
             {
@@ -532,12 +899,12 @@ namespace WorstHotel
                 v.water.localScale = new Vector3(size, 1, size);
                 v.waterAmount = water;
             }
-            bool dirty = room.bed != 2 || room.trash || !room.towel || room.water > .001f;
-            int flag = room.outOfService ? 4 : room.leak ? 3 : room.guestId != 0 ? 2 : dirty ? 1 : 0;
+            bool dirty = room.bed != 2 || room.trash || !room.towel || room.water > .001f || dirtAmount > .001f || dirtyTowels > 0;
+            int flag = room.outOfService ? 4 : room.leak ? 3 : powerFault ? 6 : waterFault ? 7 : equipmentFault ? 5 : room.guestId != 0 ? 2 : dirty ? 1 : 0;
             if (flag != v.flag)
             {
-                v.status.text = flag == 4 ? "ЗАКРЫТ" : flag == 3 ? "ТЕЧЬ!" : flag == 2 ? "ЗАНЯТ" : flag == 1 ? "УБОРКА" : "ГОТОВ";
-                Ink color = flag == 4 || flag == 3 ? Ink.Red : flag == 1 ? Ink.Gold : flag == 2 ? Ink.Blue : Ink.Green;
+                v.status.text = flag == 7 ? "НЕТ ВОДЫ" : flag == 6 ? "НЕТ СВЕТА" : flag == 5 ? "РЕМОНТ" : flag == 4 ? "ЗАКРЫТ" : flag == 3 ? "ТЕЧЬ!" : flag == 2 ? "ЗАНЯТ" : flag == 1 ? "УБОРКА" : "ГОТОВ";
+                Ink color = flag >= 3 ? Ink.Red : flag == 1 ? Ink.Gold : flag == 2 ? Ink.Blue : Ink.Green;
                 v.lamp.sharedMaterial = Mat(color); v.status.color = ColorOf(color); v.flag = flag;
             }
         }
@@ -564,12 +931,27 @@ namespace WorstHotel
         }
 
         /// <summary>Item pivot is at the bottom; all meshes and materials are shared and original.</summary>
-        public static GameObject MakeItem(string kind)
+        public static GameObject MakeItem(string kind) => MakeItem(kind, "small", "clean");
+
+        /// <summary>Use this overload for first-person carry to preserve authoritative size/condition.</summary>
+        public static GameObject MakeItem(string kind, string size, string condition)
         {
             EnsureAssets();
             Transform p = Group(null, "Item / " + kind);
             switch (kind)
             {
+                case "plunger":
+                    Shape(p, "Plunger rubber cup", cone, new Vector3(0, .115f, 0), new Vector3(.32f, .18f, .32f), Ink.Burgundy);
+                    Cylinder(p, "Plunger suction rim", new Vector3(0, .03f, 0), new Vector3(.35f, .06f, .35f), Ink.Dark);
+                    Tube(p, "Plunger wooden handle", new Vector3(0, .18f, 0), new Vector3(0, 1.04f, 0), .045f, Ink.Oak);
+                    Ball(p, "Plunger grip", new Vector3(0, 1.05f, 0), new Vector3(.071f, .16f, .071f), Ink.Wood);
+                    break;
+                case "coffee":
+                case "coffeecup":
+                    Cylinder(p, "Coffee saucer", new Vector3(0, .016f, 0), new Vector3(.27f, .03f, .27f), Ink.Ceramic);
+                    Cup(p, new Vector3(0, .032f, 0));
+                    Box(p, "Coffee service napkin", new Vector3(.025f, .01f, .035f), new Vector3(.28f, .012f, .23f), Ink.Paper);
+                    break;
                 case "toolbox":
                     Rounded(p, "Steel toolbox", new Vector3(0, .19f, 0), new Vector3(.64f, .34f, .35f), Ink.Red);
                     Rounded(p, "Toolbox lid", new Vector3(0, .36f, 0), new Vector3(.68f, .12f, .38f), Ink.Burgundy);
@@ -588,8 +970,9 @@ namespace WorstHotel
                     break;
                 case "linen":
                 case "towel":
+                case "dirtytowel":
                 case "dirtylinen":
-                    bool towel = kind == "towel", dirty = kind == "dirtylinen";
+                    bool towel = kind == "towel" || kind == "dirtytowel", dirty = kind == "dirtylinen" || kind == "dirtytowel" || condition == "dirty";
                     int layers = towel ? 2 : 3;
                     for (int j = 0; j < layers; ++j)
                     {
@@ -597,7 +980,7 @@ namespace WorstHotel
                         if (dirty) fold.transform.localRotation = Quaternion.Euler(0, j * 9 - 8, j * 3);
                         Box(p, "Woven edge", new Vector3(0, .06f + j * .081f, towel ? -.17f : -.22f), new Vector3(towel ? .38f : .6f, .02f, .011f), dirty ? Ink.Wood : Ink.Teal);
                     }
-                    if (dirty) Ball(p, "Laundry stain", new Vector3(.12f, .28f, -.03f), new Vector3(.2f, .02f, .13f), Ink.Wood);
+                    if (dirty) Ball(p, "Laundry stain", new Vector3(.12f, towel ? .2f : .28f, -.03f), new Vector3(.2f, .02f, .13f), Ink.Wood);
                     else Box(p, "Laundry paper band", new Vector3(0, layers * .081f + .036f, 0), new Vector3(.1f, .012f, towel ? .32f : .44f), Ink.Paper);
                     break;
                 case "trashbag":
@@ -643,7 +1026,9 @@ namespace WorstHotel
             foreach (Renderer renderer in p.GetComponentsInChildren<Renderer>()) bounds.Encapsulate(renderer.bounds);
             BoxCollider hit = p.gameObject.AddComponent<BoxCollider>();
             hit.center = bounds.center; hit.size = Vector3.Max(bounds.size, Vector3.one * .08f);
-            Target(p.gameObject, kind ?? "bag", ItemLabel(kind));
+            string itemLabel = condition == "dirty" && (kind == "towel" || kind == "linen") ? (kind == "towel" ? "Грязное полотенце → корзина" : "Грязное бельё → корзина") : ItemLabel(kind);
+            Target(p.gameObject, kind ?? "bag", itemLabel);
+            if (kind == "bag" && size == "large") p.localScale = new Vector3(1.3f, 1.35f, 1.25f);
             return p.gameObject;
         }
 
@@ -736,13 +1121,14 @@ namespace WorstHotel
             return new PersonVisual { root = root, figure = figure, caption = caption };
         }
 
-        static string GuestCaption(GuestState guest)
+        static string GuestCaption(GuestState guest, string request = null)
         {
             string name = string.IsNullOrEmpty(guest.name) ? "Гость " + guest.id : guest.name;
             if (name.Length > 17) name = name.Substring(0, 16) + "…";
+            if (guest.mvp != null && guest.mvp.partySize > 1) name += " ×" + guest.mvp.partySize;
             string line = guest.stage == "queue" ? "ЖДЁТ НОМЕР" : guest.stage == "checkout" ? "ВЫЕЗД" :
-                guest.stage == "leaving" ? "ДО СВИДАНИЯ" : guest.towelRequested ? "НУЖНО ПОЛОТЕНЦЕ" :
-                !guest.luggageDelivered ? "ЖДЁТ БАГАЖ" : guest.satisfaction < 45 ? "НЕДОВОЛЕН" : "НОМЕР " + guest.room;
+                guest.stage == "leaving" ? "ДО СВИДАНИЯ" : request == "coffee" ? "ЖДЁТ КОФЕ" : request == "cleaning" ? "НУЖНА УБОРКА" : guest.towelRequested || request == "towel" ? "НУЖНО ПОЛОТЕНЦЕ" :
+                !guest.luggageDelivered || request == "luggage" ? "ЖДЁТ БАГАЖ" : guest.satisfaction < 45 ? "НЕДОВОЛЕН" : "НОМЕР " + guest.room;
             return name + "\n" + line;
         }
 
@@ -752,6 +1138,9 @@ namespace WorstHotel
             {
                 case "toolbox": return "Ящик инструментов";
                 case "mop": return "Швабра";
+                case "plunger": return "Вантуз";
+                case "coffee": case "coffeecup": return "Кофе для гостя";
+                case "dirtytowel": return "Грязное полотенце → корзина";
                 case "linen": return "Чистое постельное бельё";
                 case "dirtylinen": return "Грязное бельё → корзина";
                 case "towel": return "Чистое полотенце";
@@ -771,22 +1160,26 @@ namespace WorstHotel
             PointLight(p, new Vector3(0, 2.85f, -2.8f), 7.2f, 4.5f, true);
             PointLight(p, new Vector3(5, 2.8f, -3.5f), 5, 2.1f, false);
             PointLight(p, new Vector3(-4.8f, 2.7f, -2.2f), 4.5f, 2.6f, false);
-            for (int n = 101; n <= 104; ++n)
-                PointLight(p, HotelLayout.RoomCenter(n) + new Vector3(0, 2.8f, -.2f), 5.9f, 3.2f, true);
-            foreach (float z in new[] { 3.1f, 8.6f, 14.3f })
+            for (int n = HotelLayout.FirstRoom; n <= HotelLayout.LastRoom; ++n)
+            {
+                rooms[n].roomLight = PointLight(p, HotelLayout.RoomCenter(n) + new Vector3(0, 2.8f, -.2f), 5.9f, 3.2f, true);
+                rooms[n].roomLight.enabled = rooms[n].owned;
+            }
+            foreach (float z in new[] { 3.1f, 8.6f, 14.3f, 20.7f })
             {
                 Lamp(architecture, new Vector3(0, 3.12f, z), .36f);
                 PointLight(p, new Vector3(0, 2.8f, z), 4.7f, 2.4f, false);
             }
         }
 
-        static void PointLight(Transform parent, Vector3 position, float range, float intensity, bool shadows)
+        static Light PointLight(Transform parent, Vector3 position, float range, float intensity, bool shadows)
         {
             Light light = Group(parent, "Warm pool of light", position).gameObject.AddComponent<Light>();
             light.type = LightType.Point; light.range = range; light.intensity = intensity;
             light.color = new Color(1, .86f, .69f); light.shadows = shadows ? LightShadows.Soft : LightShadows.None;
             light.shadowStrength = .7f; light.shadowBias = .045f; light.shadowNormalBias = .22f;
             light.shadowCustomResolution = 512;
+            return light;
         }
 
         static void Wall(Transform p, Vector3 basePosition, Vector3 size)
@@ -843,7 +1236,7 @@ namespace WorstHotel
             Rounded(sofa, "Faded throw pillow", new Vector3(.61f, .82f, .02f), new Vector3(.44f, .44f, .16f), Ink.Gold).transform.localRotation = Quaternion.Euler(10, 0, 17);
         }
 
-        static void Lamp(Transform p, Vector3 position, float width)
+        static Transform Lamp(Transform p, Vector3 position, float width)
         {
             Transform lamp = Group(p, "Pleated warm lampshade", position);
             Shape(lamp, "Tapered lampshade", cone, Vector3.zero, new Vector3(width, width * .62f, width), Ink.Linen);
@@ -855,6 +1248,7 @@ namespace WorstHotel
                 Cylinder(lamp, "Lamp foot", new Vector3(0, -.48f, 0), new Vector3(.29f, .05f, .29f), Ink.Brass);
             }
             else Tube(lamp, "Pendant cord", new Vector3(0, width * .3f, 0), new Vector3(0, 3.55f - position.y, 0), .024f, Ink.Dark);
+            return lamp;
         }
 
         static void Bell(Transform p, Vector3 position)
