@@ -9,6 +9,7 @@ namespace WorstHotel
         public int number; public bool outOfService; public int guestId;
         public int bed = 2; // 0: bare, 1: dirty, 2: clean
         public bool towel = true, trash, leak; public float water; public bool upgraded;
+        public MvpRoomState mvp;
     }
     [Serializable] public class GuestState
     {
@@ -21,11 +22,13 @@ namespace WorstHotel
         public int profileVersion; public string profileId, requestId, requestKind;
         public float patienceWarning, patienceLimit, requestDelay, requestGrace, stayDuration;
         public float luggageGrace, checkoutWarning, checkoutLimit, requestElapsed, requestWait;
+        public MvpGuestState mvp;
     }
     [Serializable] public class ItemState
     {
         public string id, kind; public int ownerGuest; public long holder = -1;
         public Vector3 position; public bool consumed; public int placedRoom;
+        public string size = "small", condition = "clean";
     }
     [Serializable] public class PlayerState
     {
@@ -52,17 +55,20 @@ namespace WorstHotel
         public List<string> reviews = new List<string>();
         public List<string> ledger = new List<string>();
         public string notice = "Подготовьте отель и откройте смену на стойке.";
+        public MvpHotelState mvp;
     }
     [Serializable] public class HotelCommand
     {
-        public string action, target; public int number; public long sequence; public Vector3 position; public float yaw, pitch;
+        public string action, target; public int number, guestId; public long sequence; public Vector3 position; public float yaw, pitch;
         public HotelCommand() { }
         public HotelCommand(string action, string target = "", int number = 0) { this.action = action; this.target = target; this.number = number; }
     }
     public static class HotelLayout
     {
         public static readonly Vector3 Spawn = new Vector3(0, 0.1f, -4.8f);
-        public static Vector3 RoomCenter(int n) => new Vector3(n % 2 == 1 ? -4.7f : 4.7f, 0, n <= 102 ? 5.5f : 12.5f);
+        public const int FirstRoom = 101, LastRoom = 106;
+        public const float NorthBoundary = 24;
+        public static Vector3 RoomCenter(int n) => new Vector3(n % 2 == 1 ? -4.7f : 4.7f, 0, 5.5f + ((n - 101) / 2) * 7f);
         public static Vector3 Door(int n) => new Vector3(n % 2 == 1 ? -1.5f : 1.5f, 0, RoomCenter(n).z);
         public static Vector3 RoomTarget(string kind, int n)
         {
@@ -74,6 +80,12 @@ namespace WorstHotel
                 case "towel": return c + new Vector3(sign * 1.3f, 1.1f, -2.6f);
                 case "trash": return c + new Vector3(-sign * .6f, .3f, -2.5f);
                 case "bag": return c + new Vector3(-sign * .5f, .45f, 2.2f);
+                case "toilet": return c + new Vector3(sign * 2.2f, .55f, -.55f);
+                case "tv": return c + new Vector3(-sign * 1.4f, 1.4f, .3f);
+                case "lamp": return c + new Vector3(sign * 2.3f, 1.25f, 2.2f);
+                case "coffee": return c + new Vector3(-sign * .6f, .85f, 1.25f);
+                case "clean": return c + new Vector3(0, .05f, -.2f);
+                case "dirtytowel": return c + new Vector3(sign * 1.3f, .2f, -2.6f);
                 default: return Door(n) + Vector3.up;
             }
         }
@@ -81,7 +93,7 @@ namespace WorstHotel
         {
             if (string.IsNullOrEmpty(id)) return Vector3.zero;
             string[] a = id.Split('_');
-            if(a.Length == 2 && int.TryParse(a[1], out int n) && n >= 101 && n <=104) return RoomTarget(a[0], n);
+            if(a.Length == 2 && int.TryParse(a[1], out int n) && n >= FirstRoom && n <= LastRoom) return RoomTarget(a[0], n);
             switch(id) {
                 case "desk": return new Vector3(0, 1, -.7f);
                 case "board": return new Vector3(4.6f, 1.5f, -1.8f);
@@ -90,6 +102,9 @@ namespace WorstHotel
                 case "hamper": return new Vector3(-4.8f, .5f, -3.5f);
                 case "bin": return new Vector3(-3.3f, .5f, -3.5f);
                 case "tools": return new Vector3(-3.2f, .6f, -.7f);
+                case "coffee": return new Vector3(6.5f, 1, -.7f);
+                case "utility_water": return new Vector3(-7.35f, 1, -5.4f);
+                case "utility_power": return new Vector3(-6.25f, 1, -5.4f);
                 default: return Spawn;
             }
         }
