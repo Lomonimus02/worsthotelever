@@ -14,7 +14,7 @@ New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 for ($part = 1; $part -le 2; $part++) {
     $started = Get-Date
     $logPath = Join-Path $resultsPath "playtest-path-$part-player.log"
-    $arguments = "-whe-playtest -whe-path-check -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
+    $arguments = "-whe-playtest -whe-path-check -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
     $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
     try {
         if (!$run.WaitForExit(20000)) { throw 'Playtest path check timed out.' }

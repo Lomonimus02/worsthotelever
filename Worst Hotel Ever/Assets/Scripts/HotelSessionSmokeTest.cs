@@ -48,10 +48,17 @@ namespace WorstHotel
                 string expected=Path.Combine(Application.persistentDataPath,"hotel-playtest-mvp.json");
                 if(!Check(game.Session.PlaytestSlot&&string.Equals(Path.GetFullPath(game.Session.SavePath),Path.GetFullPath(expected),StringComparison.OrdinalIgnoreCase)&&
                     !game.Session.OwnsHotel&&!game.Playing,"Human playtest arguments selected the wrong slot"))yield break;
-                yield return new WaitForSecondsRealtime(1);
+                yield return new WaitForSecondsRealtime(.7f);
+                Screen.SetResolution(1280,800,FullScreenMode.Windowed);
+                yield return new WaitForSecondsRealtime(.7f);
                 yield return new WaitForEndOfFrame();
                 var menu=ScreenCapture.CaptureScreenshotAsTexture();
-                try{File.WriteAllBytes(Path.Combine(directory,"mvp-playtest-menu.png"),menu.EncodeToPNG());}finally{Destroy(menu);}
+                try{
+                    int lit=0;var pixels=menu.GetPixels32();
+                    for(int i=0;i<pixels.Length;i+=64)if(pixels[i].r+pixels[i].g+pixels[i].b>70)lit++;
+                    if(!Check(lit>100,"Playtest menu capture is blank"))yield break;
+                    File.WriteAllBytes(Path.Combine(directory,"mvp-playtest-menu.png"),menu.EncodeToPNG());
+                }finally{Destroy(menu);}
                 checks.Add("HUMAN_PLAYTEST_FLAG_SELECTS_STABLE_SEPARATE_SLOT_WITHOUT_HOSTING");
                 Finish(errors.Count==0);yield break;
             }
