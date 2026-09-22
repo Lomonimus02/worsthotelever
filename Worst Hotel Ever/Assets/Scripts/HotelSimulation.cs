@@ -90,6 +90,10 @@ namespace WorstHotel
                     player.workLastSeen = 0;
                     return "";
                 case "cancelwork": Cancel(player); return "";
+                case "skipTutorial": case "resumeTutorial":
+                    if (playerId != 0) return "Это действие подтверждает хозяин отеля.";
+                    State.tutorialSkipped = command.action == "skipTutorial";
+                    return "";
                 case "checkin":
                     if (!Near(player, HotelLayout.Target("desk"))) return "Подойдите к стойке регистрации.";
                     return CheckIn(command.number);
@@ -289,21 +293,32 @@ namespace WorstHotel
             return false;
         }
 
-        private string CheckIn(int number)
+        // Shared read-only rules for the desk UI; command execution still checks desk distance.
+        public static string CheckInBlockReason(HotelState state, int number)
         {
-            if (State.phase != "open") return "Заселение доступно в открытую смену.";
-            RoomState room = Room(number);
+            if (state == null || state.phase != "open") return "Заселение доступно в открытую смену.";
+            RoomState room = state.rooms.Find(r => r.number == number);
             if (room == null) return "Такого номера нет.";
             if (room.guestId != 0) return "Номер уже занят.";
             if (room.outOfService) return "Номер закрыт для продаж.";
             if (room.bed != 2) return "Сначала застелите чистую кровать.";
             if (room.leak || room.water > .65f) return "Сначала устраните аварийное состояние номера.";
-            GuestState guest = State.guests.Find(g => g.stage == "queue");
+            GuestState guest = state.guests.Find(g => g.stage == "queue");
             if (guest == null) return "В очереди нет гостей.";
+            return "";
+        }
+
+        private string CheckIn(int number)
+        {
+            string blocked = CheckInBlockReason(State, number);
+            if (blocked != "") return blocked;
+            RoomState room = Room(number);
+            GuestState guest = State.guests.Find(g => g.stage == "queue");
             guest.room = number;
             guest.stage = "walking";
             room.guestId = guest.id;
             State.notice = guest.name + " заселён в " + number + ". Доставьте его чемодан.";
+            HotelOnboarding.Record(State, HotelTutorialSkill.CheckIn);
             return "";
         }
 
@@ -315,6 +330,7 @@ namespace WorstHotel
             if (guest.stage != "checkout") return "Гость пока не готов к выезду.";
             if (FlatDistance(guest.position, Reception) > .15f) return "Дождитесь гостя у стойки.";
             Settle(guest);
+            HotelOnboarding.Record(State, HotelTutorialSkill.CheckOut);
             return "";
         }
 
@@ -410,6 +426,7 @@ namespace WorstHotel
             State.items.RemoveAll(i => i.consumed);
             Log("День " + State.day + ": снабжение и содержание −" + cost);
             State.notice = "День " + State.day + ". Запасы пополнены; грязь и поломки остались. Подготовьтесь и откройте отель.";
+            HotelOnboarding.Record(State, HotelTutorialSkill.NextDay);
             return "";
         }
 
@@ -537,6 +554,7 @@ namespace WorstHotel
             {
                 guest.towelRequested = false;
                 Remember(guest, "Принесли дополнительное полотенце", 8);
+                HotelOnboarding.Record(State, HotelTutorialSkill.ExtraTowel);
             }
             Consume(player, item);
             return "";
@@ -559,6 +577,7 @@ namespace WorstHotel
             guest.luggageDelivered = true;
             Remember(guest, "Багаж доставили в номер", 5);
             UpdateCartCargo();
+            HotelOnboarding.Record(State, HotelTutorialSkill.DeliverBag);
             return "";
         }
 
@@ -620,16 +639,26 @@ namespace WorstHotel
             if (kind == "bed")
             {
                 if (room.bed == 1) { room.bed = 0; Give(player, "dirtylinen"); }
-                else { room.bed = 2; Consume(player, Held(player)); }
+                else
+                {
+                    room.bed = 2;
+                    Consume(player, Held(player));
+                    HotelOnboarding.Record(State, HotelTutorialSkill.CleanBed);
+                }
             }
             else if (kind == "trash") { room.trash = false; Give(player, "trashbag"); }
             else if (kind == "sink")
             {
                 room.leak = false;
+                HotelOnboarding.Record(State, HotelTutorialSkill.RepairLeak);
                 GuestState guest = Guest(room.guestId);
                 if (guest != null) Remember(guest, "Персонал починил раковину", 6);
             }
-            else if (kind == "water") room.water = 0;
+            else if (kind == "water")
+            {
+                room.water = 0;
+                HotelOnboarding.Record(State, HotelTutorialSkill.MopWater);
+            }
             Cancel(player);
         }
 

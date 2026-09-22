@@ -34,6 +34,8 @@ namespace WorstHotel
         public string worldId = Guid.NewGuid().ToString("N"), phase = "preparation";
         public float time, dayLength = 480; public int linenStock = 12, towelStock = 12;
         public bool secondToolbox, betterBeds, cartUpgrade; public int arrivals;
+        // Additive v1 fields: missing values in older JSON mean no recorded skills and help enabled.
+        public int tutorialFlags; public bool tutorialSkipped;
         public List<RoomState> rooms = new List<RoomState>();
         public List<GuestState> guests = new List<GuestState>();
         public List<ItemState> items = new List<ItemState>();
