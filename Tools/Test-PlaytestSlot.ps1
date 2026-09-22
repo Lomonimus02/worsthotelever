@@ -1,3 +1,4 @@
+param([switch]$Danger)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $resultsPath = Join-Path $projectRoot 'TestResults'
@@ -9,12 +10,13 @@ function Slot-Fingerprint([string]$Name) {
     return 'ABSENT'
 }
 $before = @{}
-foreach ($name in @('hotel-slot-1.json','hotel-slot-1.json.bak','hotel-playtest-mvp.json','hotel-playtest-mvp.json.bak')) { $before[$name] = Slot-Fingerprint $name }
+foreach ($name in @('hotel-slot-1.json','hotel-slot-1.json.bak','hotel-playtest-mvp.json','hotel-playtest-mvp.json.bak','hotel-playtest-danger.json','hotel-playtest-danger.json.bak')) { $before[$name] = Slot-Fingerprint $name }
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 for ($part = 1; $part -le 2; $part++) {
     $started = Get-Date
     $logPath = Join-Path $resultsPath "playtest-path-$part-player.log"
-    $arguments = "-whe-playtest -whe-path-check -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
+    $playtestFlag = if ($Danger) { '-whe-danger-playtest' } else { '-whe-playtest' }
+    $arguments = "$playtestFlag -whe-path-check -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
     $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
     try {
         if (!$run.WaitForExit(20000)) { throw 'Playtest path check timed out.' }

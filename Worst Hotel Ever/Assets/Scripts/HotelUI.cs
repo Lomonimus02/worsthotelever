@@ -18,6 +18,7 @@ namespace WorstHotel
         int selectedRoom=101, refusalGuest;
         string refusalReservation="", mvpWorld="", mvpScrollPanel="";
         Vector2 mvpScroll;
+        bool Danger => HotelDangerRules.Enabled(S);
         readonly System.Collections.Generic.Dictionary<string,Vector2> mvpScrolls=new System.Collections.Generic.Dictionary<string,Vector2>();
         void Init()
         {
@@ -38,7 +39,7 @@ namespace WorstHotel
             float scale=Mathf.Min(Screen.width/1440f,Screen.height/900f);
             GUI.matrix=Matrix4x4.TRS(new Vector3((Screen.width-1440*scale)*.5f,(Screen.height-900*scale)*.5f,0),Quaternion.identity,Vector3.one*scale);
             if(Game.Playing) {
-                if(S.mvp!=null&&mvpWorld!=S.worldId){mvpWorld=S.worldId;selectedGuest=0;selectedRoom=101;refusalGuest=0;refusalReservation="";mvpScrolls.Clear();mvpScroll=Vector2.zero;mvpScrollPanel="";}
+                if(S.mvp!=null&&mvpWorld!=S.worldId){mvpWorld=S.worldId;lastPhase="";selectedGuest=0;selectedRoom=101;refusalGuest=0;refusalReservation="";mvpScrolls.Clear();mvpScroll=Vector2.zero;mvpScrollPanel="";}
                 if(S.phase!=lastPhase){lastPhase=S.phase;if(S.phase=="summary")Game.OpenPanel("summary");}
                 HUD();
             }
@@ -57,10 +58,12 @@ namespace WorstHotel
                 if(Button(new Rect(459,498,520,47),"Отменить")){Game.Session.Disconnect(false);Game.OpenPanel("menu");}
             }
             if(Game.Toast!=""&&(Game.Playing||Game.Panel=="steam")) {
-                float toastY=Game.Panel==""?115:800;
+                float toastY=Game.Panel==""?(Danger?133:115):800;
                 float toastHeight=Mathf.Clamp(normal.CalcHeight(new GUIContent(Game.Toast),662)+22,60,96);
                 Box(new Rect(370,toastY,700,toastHeight),new Color(.07f,.12f,.13f,.94f));Text(new Rect(389,toastY+11,662,toastHeight-18),Game.Toast,normal);
             }
+            // One reserved strip, not a second modal: remains above dimming and outside every panel.
+            if(Game.Playing&&Danger)DangerHUD();
             GUI.matrix=Matrix4x4.identity;
         }
         void Box(Rect rect,Color color) {Color old=GUI.color;GUI.color=color;GUI.DrawTexture(rect,Texture2D.whiteTexture);GUI.color=old;}
@@ -80,11 +83,11 @@ namespace WorstHotel
             Box(new Rect(0,0,565,900),new Color(.055f,.10f,.11f,.95f));
             Box(new Rect(49,67,62,5),gold);Text(new Rect(49,90,450,30),"КОМАНДА НУЖНА. ОПЫТ НЕОБЯЗАТЕЛЕН.",small,gold);
             Text(new Rect(43,140,510,260),"WORST\nHOTEL\nEVER",huge);
-            Text(new Rect(49,388,465,78),"Четыре номера. Два сотрудника.\nИ всё обязательно пойдёт не так.",normal);
-            Text(new Rect(49,837,465,30),"MVP CANDIDATE  /  1.0.0-mvp-rc1  /  1–2 ИГРОКА",small,muted);
+            Text(new Rect(49,388,465,78),"4 стартовых номера + 2 покупаемых.\nДва сотрудника. Опасные контракты.",normal);
+            Text(new Rect(49,837,465,53),"1.1.0-danger-alpha1 · 1–2 ИГРОКА\nЭКСПЕРИМЕНТАЛЬНАЯ РАЗРАБОТКА · НЕ РЕЛИЗ",small,muted);
             Box(new Rect(998,24,397,74),new Color(.065f,.105f,.11f,.84f));
             Text(new Rect(1017,36,366,50),"ОТЕЛЬ «ПОЧТИ ГРАНД»\n★  НАЧНИТЕ С ЧИСТОГО ПОЛОТЕНЦА",small,paper);
-            if(Game.Session.PlaytestSlot){Box(new Rect(595,112,790,46),new Color(.065f,.105f,.11f,.84f));Text(new Rect(610,123,760,29),"Тестовый слот MVP · основной отель не затронут",small,gold);}
+            if(Game.Session.PlaytestSlot){Box(new Rect(595,112,790,46),new Color(.065f,.105f,.11f,.84f));Text(new Rect(610,123,760,29),Game.Session.DangerPlaytestSlot?"Тестовый слот опасных смен · основной отель не затронут":"Тестовый слот MVP · основной отель не затронут",small,gold);}
             if(Game.Panel=="menu" && Button(new Rect(980,673,405,53),"Тест Steam (AppID 480)"))Game.Panel="steam";
             if(Game.Panel=="connect") {
                 Text(new Rect(50,480,470,40),"Подключение к другу",title);
@@ -122,6 +125,7 @@ namespace WorstHotel
         }
         void HUD()
         {
+            if(!Danger) {
             Box(new Rect(25,22,1390,76),new Color(.065f,.1f,.11f,.93f));Box(new Rect(25,22,6,76),gold);
             Text(new Rect(48,35,260,27),"ПОЧТИ ГРАНД",bold);Text(new Rect(48,64,320,22),Game.Session.IsHost?"ВЫ — ХОСТ  ·  СОТРУДНИКОВ "+S.players.Count+"/2":"КООПЕРАТИВ  ·  СОТРУДНИКОВ "+S.players.Count+"/2",small,muted);
             Text(new Rect(367,36,300,32),"ДЕНЬ "+S.day+"  /  "+Phase(S.phase),bold);
@@ -129,12 +133,13 @@ namespace WorstHotel
             Text(new Rect(730,36,315,44),HotelDirector.ClockHeld(S)?"УЧЕБНЫЙ ТАЙМЕР ОСТАНОВЛЕН":S.phase=="open"?"ДО ЗАКРЫТИЯ  "+((int)left/60).ToString("00")+":"+((int)left%60).ToString("00"):"ВЫДОХНИТЕ. ПОКА.",small,gold);
             Text(new Rect(1080,34,290,38),S.cash+" ₽",title,S.cash<0?gold:green);
             if(S.mvp!=null)Text(new Rect(1080,72,290,23),(S.cash<0?"ДОЛГ · ":"")+"Репутация "+S.mvp.reputation.ToString("0.0")+" / 5",small,muted);
+            }
             if(Game.Panel!="")return;
             Box(new Rect(716,446,8,8),paper);
             if(Game.FocusLabel!="") {
                 float h=S.mvp==null?76:Mathf.Max(76,normal.CalcHeight(new GUIContent(Game.FocusLabel),625)+24);
                 Box(new Rect(365,738-h,710,h),new Color(.065f,.105f,.11f,.94f));
-                Box(new Rect(380,750-h,32,32),gold);Text(new Rect(387,751-h,28,30),"E",bold,ink);
+                Box(new Rect(380,750-h,32,32),gold);Text(new Rect(387,751-h,28,30),Game.FocusId==""&&Danger?"!":"E",bold,ink);
                 Text(new Rect(430,750-h,625,h-16),Game.FocusLabel,normal);
             }
             if(Game.LocalPlayer!=null && Game.LocalPlayer.workTarget!="") {
@@ -143,12 +148,24 @@ namespace WorstHotel
                 Text(new Rect(580,756,400,25),"Удерживайте E до завершения",small);
             }
             Box(new Rect(25,S.mvp==null?797:779,730,S.mvp==null?77:95),new Color(.065f,.105f,.11f,.90f));
-            Text(new Rect(42,S.mvp==null?805:787,698,S.mvp==null?39:58),Game.Held==null?"Руки свободны. Самое время помочь коллеге.":HotelPresentation.HeldLabel(S,Game.Held)+"   ·   Q — положить",normal);
+            Text(new Rect(42,S.mvp==null?805:787,698,S.mvp==null?39:58),Danger&&!HotelDangerRules.CanAct(S,Game.Session.LocalId)?
+                "Движение и обычная работа недоступны. Взгляд, TAB и ESC работают.":Game.Held==null?"Руки свободны. Самое время помочь коллеге.":HotelPresentation.HeldLabel(S,Game.Held)+"   ·   Q — положить",normal);
             Text(new Rect(42,845,698,23),S.mvp==null?"WASD — ходить   SHIFT — быстрее   TAB — задачи   ESC — меню":"WASD · E — работа · Q — положить · TAB — обзор · F / СКМ — отметка",small,muted);
             Box(new Rect(1124,820,290,59),new Color(.065f,.105f,.11f,.90f));
             Text(new Rect(1140,832,260,42),"Автосохранение: "+(Game.Session.IsHost?Game.Session.LastSaved:"у хоста")+"\n"+(int)Game.FPS+" FPS",small,muted);
-            var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId);
-            if(hint!=null) {
+            bool urgent=Danger&&(!HotelDangerRules.CanAct(S,Game.Session.LocalId)||HotelPresentation.DangerTerminal(S)||HotelPresentation.DangerPriorityTarget(S,Game.Session.LocalId)!="");
+            var hint=urgent?null:HotelOnboarding.GetHint(S,Game.Session.LocalId);
+            if(urgent) {
+                string body=!HotelDangerRules.CanAct(S,Game.Session.LocalId)?
+                    HotelDangerRules.Crew(S,Game.Session.LocalId)?.life=="downed"?"Зовите коллегу. Для самопомощи закройте меню и удерживайте E. Нужны аптечка и неиспользованная аварийная помощь.":
+                    "Вы погибли до следующей подготовки. Коллега может эвакуироваться; затем хост начинает новый день из итогов.":
+                    HotelPresentation.DangerTerminal(S)?"TAB → итоги. Покупки сохранены; новую подготовку начинает хост.":
+                    "Сначала оцените угрозу. Изоляция у входа останавливает урон; затем можно спасать коллегу и устранять источник.";
+                float h=Mathf.Max(130,small.CalcHeight(new GUIContent(body),296)+62);
+                Box(new Rect(25,125,330,h),new Color(.065f,.105f,.11f,.92f));
+                Text(new Rect(42,140,296,28),"СРОЧНАЯ ЗАДАЧА",bold,gold);
+                Text(new Rect(42,176,296,h-58),body,small);
+            } else if(hint!=null) {
                 Box(new Rect(25,125,330,246),new Color(.065f,.105f,.11f,.92f));
                 Text(new Rect(42,140,296,24),(S.day==1?"ПЕРВАЯ СМЕНА":"ДЕНЬ 2 · ПРАКТИКА")+"  ·  "+hint.completed+" / "+hint.total,small,gold);
                 Text(new Rect(42,175,296,58),hint.title,bold);
@@ -156,7 +173,7 @@ namespace WorstHotel
                 DrawHintTarget(hint.targetId);
             } else {
                 var task=TaskLines().FirstOrDefault();
-                if(task!=null){Box(new Rect(25,125,320,112),new Color(.065f,.105f,.11f,.87f));Text(new Rect(40,137,290,22),"ОБЩИЕ ЗАДАЧИ  ·  TAB",small,gold);Text(new Rect(40,165,290,62),task,normal);}
+                if(task!=null){float taskHeight=Danger?Mathf.Max(62,normal.CalcHeight(new GUIContent(task),290)):62;Box(new Rect(25,125,320,taskHeight+50),new Color(.065f,.105f,.11f,.87f));Text(new Rect(40,137,290,22),"ОБЩИЕ ЗАДАЧИ  ·  TAB",small,gold);Text(new Rect(40,165,290,taskHeight),task,normal);}
             }
             if(HotelDirector.IsGuided(S)) {
                 Box(new Rect(25,441,330,123),new Color(.065f,.105f,.11f,.92f));
@@ -164,19 +181,87 @@ namespace WorstHotel
                 Text(new Rect(42,532,296,23),"ESC → План смены / темп",small,muted);
             }
             if(S.mvp!=null) {
-                string directorStatus=HotelMvpDirector.Status(S);
-                float directorHeight=small.CalcHeight(new GUIContent(directorStatus),292)+60;
-                Box(new Rect(1090,124,324,directorHeight),new Color(.065f,.105f,.11f,.92f));
-                Text(new Rect(1106,137,292,28),"НАГРУЗКА  "+HotelWorkload.Measure(S).ToString("0.0"),bold,gold);
-                Text(new Rect(1106,169,292,directorHeight-48),directorStatus,small,muted);
-                float pingY=136+directorHeight;
+                float pingY;
+                if(Danger)pingY=136+DangerFieldGuide();
+                else {
+                    string directorStatus=HotelMvpDirector.Status(S);
+                    float directorHeight=small.CalcHeight(new GUIContent(directorStatus),292)+60;
+                    Box(new Rect(1090,124,324,directorHeight),new Color(.065f,.105f,.11f,.92f));
+                    Text(new Rect(1106,137,292,28),"НАГРУЗКА  "+HotelWorkload.Measure(S).ToString("0.0"),bold,gold);
+                    Text(new Rect(1106,169,292,directorHeight-48),directorStatus,small,muted);
+                    pingY=136+directorHeight;
+                }
                 foreach(var ping in S.mvp.pings.Take(2)) {
-                    Box(new Rect(1090,pingY,324,69),new Color(.065f,.105f,.11f,.92f));
-                    Text(new Rect(1106,pingY+8,292,52),(ping.playerId==Game.Session.LocalId?"Ваша отметка: ":"Коллега отмечает: ")+MvpTargetName(ping.target),small,gold);
+                    string pingText=(ping.playerId==Game.Session.LocalId?"Ваша отметка: ":"Коллега отмечает: ")+MvpTargetName(ping.target);
+                    float pingHeight=Danger?Mathf.Max(69,small.CalcHeight(new GUIContent(pingText),292)+17):69;
+                    Box(new Rect(1090,pingY,324,pingHeight),new Color(.065f,.105f,.11f,.92f));
+                    Text(new Rect(1106,pingY+8,292,pingHeight-17),pingText,small,gold);
                     DrawMvpPing(ping);
-                    pingY+=76;
+                    pingY+=pingHeight+7;
                 }
             }
+        }
+        void DangerHUD()
+        {
+            var danger=S.danger;
+            var local=HotelDangerRules.Crew(S,Game.Session.LocalId);
+            var colleague=danger.crew.Find(c=>c.slot!=HotelDangerRules.Slot(Game.Session.LocalId));
+            bool terminal=HotelPresentation.DangerTerminal(S),critical=!terminal&&danger.status=="active"&&danger.safety<=0;
+            Box(new Rect(25,12,1390,108),ink);Box(new Rect(25,12,6,108),critical||local?.life=="dead"?red:gold);
+            Text(new Rect(42,18,310,25),HotelPresentation.DangerCrewLabel(S,local,Game.Session.LocalId),bold,local?.life=="healthy"?paper:gold);
+            Text(new Rect(42,43,310,25),HotelPresentation.DangerCrewLabel(S,colleague,Game.Session.LocalId),normal,colleague?.life=="healthy"?muted:gold);
+            Text(new Rect(42,68,310,23),"Аптечки: "+danger.medkits+" · самопомощь: "+danger.selfRescues,normal);
+            bool offline=colleague?.joined==true&&!S.players.Any(p=>HotelDangerRules.Slot(p.id)==colleague.slot);
+            Text(new Rect(42,93,310,23),offline?"Коллега вне сети · состояние сохранено":local?.shield>0?"Защита после помощи: "+HotelPresentation.Seconds(local.shield):"Здоровье сохраняется при выходе",small,muted);
+            Box(new Rect(360,22,1,89),muted);Box(new Rect(933,22,1,89),muted);
+            Text(new Rect(375,18,545,25),HotelDangerRules.ModeName(danger.mode)+" · "+Phase(S.phase),bold,gold);
+            Text(new Rect(375,43,545,25),danger.mode=="relief"?"Без контрактной премии и зачёта победы":
+                "Сервис "+danger.servicePoints+" / "+danger.requiredService+" · аварии "+danger.resolved+" / "+danger.requiredIncidents,normal);
+            Text(new Rect(375,68,545,25),HotelDirector.ClockHeld(S)?"Опасности ждут завершения обучения":
+                S.phase=="preparation"?"Без таймера · выберите контракт у доски":
+                "Время контракта "+MvpTime(danger.elapsed)+" / "+MvpTime(danger.minimumSeconds)+" · до закрытия "+MvpTime(S.dayLength-S.time),normal,muted);
+            Text(new Rect(375,93,545,23),"День "+S.day+" · "+S.cash+" ₽ · побед "+danger.wins+" · серия "+danger.streak+" / рекорд "+danger.bestStreak,small,muted);
+            Text(new Rect(950,18,445,25),critical?"КРИТИЧНО · ЭВАКУАЦИЯ · "+HotelPresentation.Seconds(danger.criticalRemaining):
+                terminal?"СМЕНА ЗАВЕРШЕНА":"БЕЗОПАСНОСТЬ ОТЕЛЯ · "+Mathf.CeilToInt(danger.safety)+" / 100",bold,critical?gold:paper);
+            if(terminal) {
+                Text(new Rect(950,45,445,45),HotelPresentation.DangerOutcomeName(danger.outcome),normal,danger.status=="failed"?gold:green);
+                if(Game.Panel!=""&&Game.Panel!="summary") {
+                    if(Button(new Rect(950,92,445,24),"Открыть результат смены"))Game.OpenPanel("summary");
+                } else Text(new Rect(950,93,445,23),"Причина и последствия — в итогах",small,muted);
+            } else {
+                var incidents=danger.incidents.Where(i=>i.status=="warning"||i.status=="active").OrderBy(i=>i.isolated?2:i.status=="active"?0:1).Take(2).ToList();
+                for(int i=0;i<incidents.Count;i++) {
+                    var incident=incidents[i];
+                    // Room/kind and urgency get one short line each; details stay in the scrollable overview.
+                    string kind=incident.kind=="electric"?"ТОК":incident.kind=="steam"?"ПАР":"ИСПАРЕНИЯ";
+                    string status=incident.isolated?"изолировано":incident.status=="warning"?"урон через "+HotelPresentation.Seconds(incident.warningRemaining):"ОПАСНО";
+                    Text(new Rect(950,43+i*25,445,25),"№ "+incident.room+" · "+kind+" · "+status,normal,incident.isolated?muted:gold);
+                }
+                if(incidents.Count==0)Text(new Rect(950,43,445,48),danger.mode=="relief"?"Опасных аварий в этом режиме нет.":"Активных зон нет. План угроз — в подготовке.",normal,muted);
+                if(Game.Session.IsHost&&HotelDangerRules.HostCanForfeit(S)) {
+                    if(Button(new Rect(950,92,445,26),"Некому продолжать → отказ от контракта"))Game.OpenPanel("abandon-confirm");
+                } else Text(new Rect(950,93,445,23),critical?"Тревога у выхода · свободные руки + E":"Отсекатель у двери · детали: TAB → Операции",small,critical?gold:muted);
+            }
+        }
+        float DangerFieldGuide()
+        {
+            string target=HotelPresentation.DangerPriorityTarget(S,Game.Session.LocalId);
+            string body=target==""?"Изоляция у двери → инструмент → источник. Обычные лужи не смертельны.":HotelPresentation.DangerTargetName(S,target);
+            if(target!=""&&HotelPresentation.TryTarget(S,target,out Vector3 point)) {
+                Vector3 delta=point-Game.View.transform.position;delta.y=0;
+                Vector3 forward=Game.View.transform.forward;forward.y=0;
+                float angle=Vector3.SignedAngle(forward,delta,Vector3.up);
+                body+="\n"+(Mathf.Abs(angle)>135?"ПОЗАДИ":angle>30?"СПРАВА":angle< -30?"СЛЕВА":"ВПЕРЕДИ")+" · "+Mathf.CeilToInt(delta.magnitude)+" м";
+            }
+            if(HotelPresentation.DangerTerminal(S))body="Смена закончена. TAB → итоги. Подготовку может начать даже погибший хост.";
+            else if(!HotelDangerRules.CanAct(S,Game.Session.LocalId))body=HotelDangerRules.Crew(S,Game.Session.LocalId)?.life=="downed"?
+                "Нужна помощь! Закройте меню для E → самопомощь. Коллега может поднять вас своей работой, аптечки общие.":
+                "Возвращение в следующей подготовке. Если некому продолжать, хост может подтвердить отказ от контракта в верхней панели.";
+            float height=normal.CalcHeight(new GUIContent(body),292)+75;
+            Box(new Rect(1090,124,324,height),new Color(.065f,.105f,.11f,.92f));
+            Text(new Rect(1106,137,292,28),"БЕЗОПАСНОСТЬ",bold,gold);
+            Text(new Rect(1106,171,292,height-42),body,normal);
+            return height;
         }
         void DrawMvpPing(MvpPingState ping)
         {
@@ -188,10 +273,13 @@ namespace WorstHotel
             float y=(Screen.height-pixel.y-(Screen.height-900*scale)*.5f)/scale;
             // Keep projected labels clear of the fixed HUD and interaction prompt.
             if(x<385||x>1065||y<220||y>590)return;
+            string label=(ping.playerId==Game.Session.LocalId?"Вы: ":"Коллега: ")+MvpTargetName(ping.target);
+            float height=Danger?Mathf.Max(58,small.CalcHeight(new GUIContent(label),254)+14):58;
+            if(Danger&&y+14+height>625)return;
             Box(new Rect(x-7,y-7,14,14),gold);Box(new Rect(x-3,y-3,6,6),ink);
             float left=Mathf.Clamp(x-135,365,800);
-            Box(new Rect(left,y+14,270,58),new Color(.065f,.105f,.11f,.9f));
-            Text(new Rect(left+8,y+19,254,49),(ping.playerId==Game.Session.LocalId?"Вы: ":"Коллега: ")+MvpTargetName(ping.target),small,gold);
+            Box(new Rect(left,y+14,270,height),new Color(.065f,.105f,.11f,.9f));
+            Text(new Rect(left+8,y+19,254,height-9),label,small,gold);
         }
         void DrawHintTarget(string targetId)
         {
@@ -368,6 +456,7 @@ namespace WorstHotel
                 "Мир продолжает жить.  TAB — обзор  /  ESC — вернуться  /  действия проверяются у стойки или доски.");
             if(panel=="pace-confirm"){PaceConfirmation();return;}
             string[] labels={"Номера","Гости","Операции","Расписание","Подготовка","План / помощь"};
+            if(Danger)labels[4]="Контракт / бюджет";
             string[] panels={"reception","guests","tasks","schedule","management","briefing"};
             for(int i=0;i<labels.Length;i++)
                 if(Button(new Rect(202+i*174,258,164,42),labels[i],true,panel==panels[i]||(i==0&&panel=="rooms")||(i==1&&panel=="guest")))Game.Panel=panels[i];
@@ -383,13 +472,15 @@ namespace WorstHotel
             else if(panel=="summary")MvpSummary();
             else if(panel=="briefing")MvpBriefing();
             else if(panel=="finish-confirm")MvpFinishConfirmation();
+            else if(panel=="abandon-confirm")DangerAbandonConfirmation();
             else if(panel=="refuse-confirm")MvpRefuseConfirmation();
             else MvpRooms();
             GUILayout.Space(12);GUILayout.EndVertical();GUILayout.EndScrollView();GUILayout.EndArea();
             Box(new Rect(202,709,1036,2),new Color(.24f,.31f,.29f));
             Text(new Rect(206,718,770,48),"День "+S.day+" · "+Phase(S.phase)+" · "+S.cash+" ₽ · ★ "+S.mvp.reputation.ToString("0.0")+" / 5\n"+
                 (S.phase=="preparation"?"Цены и покупки: хост у доски. Открытие смены: хост у стойки.":"Заселение, переселение, отказ и оплата: любой сотрудник у стойки."),small,muted);
-            if(Button(new Rect(1018,721,220,43),"Вернуться в отель"))Game.OpenPanel("");
+            if(Button(new Rect(1018,721,220,43),Danger&&HotelPresentation.DangerTerminal(S)&&panel!="summary"?"Результат смены":"Вернуться в отель"))
+                Game.OpenPanel(Danger&&HotelPresentation.DangerTerminal(S)&&panel!="summary"?"summary":"");
         }
         void MvpText(string value,GUIStyle style=null,Color? color=null)
         {
@@ -495,6 +586,7 @@ namespace WorstHotel
         }
         void MvpOperations()
         {
+            if(Danger)DangerOperations();
             MvpSection("НАГРУЗКА · "+HotelWorkload.Measure(S).ToString("0.0"));MvpText(HotelMvpDirector.Status(S));
             MvpSection("ОБЩИЕ СИСТЕМЫ");
             MvpText("Вода: "+(S.mvp.utilities.waterFault?"АВАРИЯ":"работает")+" · износ "+HotelPresentation.Percent(S.mvp.utilities.waterWear));
@@ -513,7 +605,7 @@ namespace WorstHotel
             MvpText("Бельё: "+S.linenStock+" · чистые полотенца: "+S.towelStock+" · кофе: "+S.mvp.coffeeStock);
             MvpText("Полотенце → стойка в номере. Кофе: удержать E в лобби → E у столика гостя. Уборка: швабра → грязь или лужа. Багаж: проверьте владельца и перенесите к его подставке. Большие чемоданы можно перевозить тележкой.",normal);
             MvpText("Грязное бельё и полотенца → приёмник. Мусор → бак. Туалет чинят вантузом; раковину, ТВ, лампу и общие системы — инструментами. Неубранная вода остаётся после ремонта.",normal);
-            MvpSection("КОМАНДА");
+            MvpSection(Danger?"ТЕКУЩАЯ РАБОТА ПОДКЛЮЧЁННЫХ":"КОМАНДА");
             foreach(var player in S.players)MvpText((player.id==Game.Session.LocalId?"Вы": "Коллега")+" · "+(player.workTarget!=""?MvpTargetName(player.workTarget)+" · "+HotelPresentation.Percent(player.workProgress):HotelPresentation.HeldLabel(S,S.items.Find(i=>i.id==player.held&&!i.consumed))),small);
         }
         void MvpSchedule()
@@ -547,6 +639,7 @@ namespace WorstHotel
         }
         void MvpManagement()
         {
+            if(Danger)DangerContract();
             MvpSection("ПОДГОТОВКА И БЮДЖЕТ");
             MvpText("Баланс: "+S.cash+" ₽ · выручка: "+S.earned+" ₽ · расходы: "+S.expenses+" ₽");
             if(S.cash<0)MvpText("Долг: "+(-S.cash)+" ₽. Продолжайте обслуживание и принимайте оплату. Необязательные улучшения не покупаются в долг; базовое пополнение проходит при подготовке.",normal,gold);
@@ -591,8 +684,107 @@ namespace WorstHotel
             MvpText("Занятый номер нельзя закрыть. Закрытие ограничивает доступные места; существующие брони проверяет отель.",small,muted);
             MvpReviewsAndLedger();
         }
+        void DangerContract()
+        {
+            var danger=S.danger;
+            MvpSection("КОНТРАКТ · "+HotelDangerRules.ModeName(danger.mode));
+            MvpText(HotelDangerRules.Objective(S),bold);
+            MvpText("Премия: "+danger.reward+" ₽ · расход при провале: "+danger.penalty+" ₽ · минимум: "+HotelPresentation.Seconds(danger.minimumSeconds),normal,gold);
+            if(S.phase=="preparation") {
+                MvpText("Выбирает хост у доски. Цели и цена риска известны до открытия; после открытия выбор закреплён.",normal);
+                string board=MvpStation("board",true,true);
+                foreach(string mode in new[]{"relief","standard","bold"}) {
+                    MvpSection(HotelDangerRules.ModeName(mode)+(danger.mode==mode?" · ВЫБРАНО":""));
+                    MvpText(HotelPresentation.DangerModeTerms(mode));
+                    if(MvpButton(danger.mode==mode?"Этот контракт выбран":"Выбрать: "+HotelDangerRules.ModeName(mode),board==""&&danger.mode!=mode,danger.mode==mode))Send("dangerMode",mode);
+                }
+                MvpReason(board);
+            } else MvpText("Режим закреплён до следующей подготовки. Досрочный выход по тревоге — провал, а не победа.",small,muted);
+            MvpSection("СОХРАНЁННЫЙ ПЛАН УГРОЗ");
+            foreach(var incident in danger.incidents.Take(danger.requiredIncidents))MvpText(HotelPresentation.DangerIncidentLabel(incident));
+            if(danger.requiredIncidents==0)MvpText("Опасных аварий нет. Бытовая работа остаётся.",small,muted);
+            MvpText("Сервис дают новое заселение и первое фактическое выполнение запроса. Повторные команды, компенсации и переселения очков не дают. Деньги за многодневное проживание не являются целью контракта.",small,muted);
+            MvpText("Побед: "+danger.wins+" · провалов: "+danger.losses+" · серия: "+danger.streak+" · лучшая серия: "+danger.bestStreak,bold);
+            if(MvpButton("Правила опасностей и спасения"))Game.Panel="briefing";
+        }
+        void DangerOperations()
+        {
+            var danger=S.danger;
+            if(HotelPresentation.DangerTerminal(S)) {
+                MvpSection(HotelPresentation.DangerOutcomeName(danger.outcome));MvpText(danger.reason);
+                if(MvpButton("Результат и следующий день",true,true))Game.Panel="summary";
+            } else {MvpSection("КОНТРАКТ И БЕЗОПАСНОСТЬ");MvpText(HotelDangerRules.Objective(S),bold,gold);}
+            MvpText("Безопасность: "+Mathf.CeilToInt(danger.safety)+" / 100 · аптечки: "+danger.medkits+" · аварийная самопомощь: "+danger.selfRescues);
+            if(!danger.settled&&danger.status=="active"&&danger.safety<=0)
+                MvpText("КРИТИЧЕСКОЕ ОКНО: "+HotelPresentation.Seconds(danger.criticalRemaining)+". Устраните источник или подайте тревогу у выхода.",bold,gold);
+            foreach(var crew in danger.crew) {
+                MvpSection(HotelPresentation.DangerCrewLabel(S,crew,Game.Session.LocalId));
+                if(!crew.joined)continue;
+                bool connected=S.players.Any(p=>HotelDangerRules.Slot(p.id)==crew.slot);
+                MvpText((connected?"В отеле":"Вне сети · тело и состояние сохранены")+" · потерь сознания: "+crew.downs+" · спасений: "+crew.rescues,small,muted);
+                if(crew.shield>0)MvpText("Защита после помощи: "+HotelPresentation.Seconds(crew.shield),small);
+                if(!string.IsNullOrEmpty(crew.lastHit))MvpText("Последняя причина ранения: "+crew.lastHit,small,muted);
+                if(crew.life=="dead")MvpText("Погиб до конца смены. Переподключение не лечит. Новая подготовка восстановит команду.",normal,gold);
+                else if(crew.life=="downed"&&!danger.settled) {
+                    bool self=crew.slot==HotelDangerRules.Slot(Game.Session.LocalId);
+                    string target=(self?"recover_":"rescue_")+crew.slot;
+                    MvpText(self?"Закройте панель и удерживайте E для самопомощи. Можно смотреть по сторонам; двигаться нельзя.":
+                        "Подойдите к телу, освободите руки и удерживайте E. Тело остаётся доступным даже без подключения коллеги.",normal,gold);
+                    MvpReason(HotelDangerRules.WorkError(S,Game.Session.LocalId,target));
+                    if(self&&!danger.settled&&MvpButton("Вернуться к удержанию E"))Game.OpenPanel("");
+                }
+                else if(crew.life=="downed")MvpText("Смена завершена. Команду восстановит следующая подготовка.",normal,gold);
+            }
+            MvpSection("УГРОЗЫ · ИЗОЛЯЦИЯ → ИСТОЧНИК");
+            foreach(var incident in danger.incidents.Take(danger.requiredIncidents)) {
+                MvpText(HotelPresentation.DangerIncidentLabel(incident),bold,incident.status=="active"&&!incident.isolated?gold:paper);
+                if(!danger.settled&&(incident.status=="warning"||incident.status=="active")) {
+                    MvpText(incident.isolated?"Урон и рост остановлены. "+(incident.kind=="fumes"?"Швабра":"Ящик инструментов")+" → источник, удерживайте E.":
+                        "Не входите в отмеченную зону. Свободные руки → отсекатель / вентиляция у двери → удерживайте E.");
+                    if(incident.isolated)MvpText(incident.kind=="electric"?"Питание номера отключено до устранения источника.":incident.kind=="steam"?"Вода номера отключена до устранения источника.":"Вентиляция удерживает испарения; остаток нужно убрать.",small,muted);
+                }
+            }
+            if(danger.requiredIncidents==0)MvpText("В режиме передышки опасных аварий нет.",small,muted);
+            MvpText("Аптечная станция — западная часть лобби, рядом со складом. Пожарная тревога — справа от главного выхода: свободные руки + E; эвакуация проваливает контракт.",normal);
+        }
+        void DangerSummary()
+        {
+            var danger=S.danger;
+            MvpSection(HotelPresentation.DangerOutcomeName(danger.outcome));
+            MvpText(danger.reason,normal,danger.status=="failed"?gold:paper);
+            // Terminal recovery is explicitly remote and life-independent; never ask a dead host to walk.
+            string reason=HotelPresentation.DangerNextDayReason(S,Game.Session.IsHost);
+            if(MvpButton("Восстановить команду · подготовка дня "+(S.day+1),reason=="",true)) {
+                Send("nextday");if(S.phase=="preparation")Game.OpenPanel("management");
+            }
+            MvpReason(reason);
+            MvpText("Начисленная премия: +"+danger.paidReward+" ₽ · расход на восстановление: −"+danger.chargedPenalty+" ₽",bold);
+            MvpText("Выручка дня: "+S.earned+" ₽ · расходы: "+S.expenses+" ₽ · баланс: "+S.cash+" ₽",normal,S.cash<0?gold:paper);
+            MvpText("Сервис: "+danger.servicePoints+" / "+danger.requiredService+" · аварии: "+danger.resolved+" / "+danger.requiredIncidents+" · время контракта: "+MvpTime(danger.elapsed));
+            MvpText("Погибших: "+danger.crew.Count(c=>c.joined&&c.life=="dead")+" · без сознания: "+danger.crew.Count(c=>c.joined&&c.life=="downed"),bold,gold);
+            foreach(var crew in danger.crew.Where(c=>c.joined))MvpText(HotelPresentation.DangerCrewLabel(S,crew,Game.Session.LocalId));
+            MvpText("Побед: "+danger.wins+" · провалов: "+danger.losses+" · серия: "+danger.streak+" · рекорд: "+danger.bestStreak,bold);
+            MvpText(danger.status=="failed"?"Гости эвакуированы; незавершённое проживание не считается успешным полным выездом. Контрактная премия потеряна.":
+                "Продолжают проживание: "+S.guests.Count(g=>g.stage=="walking"||g.stage=="staying")+". Их договорённости и запросы сохраняются.");
+            MvpText("Купленные номера и улучшения остаются. Подготовка доступна даже при долге и смерти хоста; подходить к стойке не нужно. Награда и расход уже учтены один раз.",normal,muted);
+            MvpReviewsAndLedger();
+        }
+        void DangerHelp()
+        {
+            MvpSection("ОПАСНЫЕ КОНТРАКТЫ · ПОМОГАЙТЕ ДРУГ ДРУГУ");
+            MvpText("В подготовке хост у доски выбирает передышку, обычный контракт или высокий риск. Открытие — у стойки. Учебная цепочка защищена; часы опасностей начнутся после её завершения или явного перехода к обычному темпу.");
+            MvpText("До урона есть предупреждение. Электрическая дуга бьёт импульсами, горячая труба обжигает, едкие испарения вредят внутри отмеченной зоны. Обычная лужа не убивает.");
+            MvpText("1. Освободите руки (Q). У двери опасного номера удерживайте E на отсекателе / вентиляции: "+HotelPresentation.Seconds(HotelDangerRules.IsolationSeconds)+". Изоляция остаётся включённой и останавливает урон и рост аварии.");
+            MvpText("2. Принесите ящик инструментов к электрической дуге или трубе; к испарениям — швабру. Удерживайте E на источнике. Изоляция временно отключает связанную услугу, ремонт возвращает её. Бытовая грязь и поломки убираются отдельно.");
+            MvpText("3. Коллега без сознания: освободите руки, подойдите к телу, наведитесь и удерживайте E "+HotelPresentation.Seconds(HotelDangerRules.RescueSeconds)+". Расходуется общая аптечка. Не успели до конца окна — сотрудник погибает до новой смены.");
+            MvpText("Для себя: закройте панель и удерживайте E "+HotelPresentation.Seconds(HotelDangerRules.RecoverySeconds)+". Самопомощь расходует аптечку и общий аварийный запас; остатки видны в верхней полосе. Если помощь уже оказывает коллега, дождитесь его.");
+            MvpText("Лечение ранений: аптечная станция в западной части лобби → свободные руки + E. Не тратьте общие аптечки без необходимости. Переподключение и загрузка не отменяют ранения или смерть.");
+            MvpText("Безопасность отеля падает от запущенных угроз. При нуле видно последнее окно: устраните источник или подайте тревогу справа от выхода. Тревога требует свободных рук и E "+HotelPresentation.Seconds(HotelDangerRules.AlarmSeconds)+"; это провал без премии, но не смерть живой команды.",normal,gold);
+            MvpText("Панели НЕ останавливают опасности. Верхняя полоса всегда показывает здоровье, коллегу, цели и угрозы. TAB — обзор / терминальный результат, ESC — меню. Отпускание E, смена цели или открытие панели отменяет работу. В настройках отключаются покачивание камеры и движения рук; предупреждения дублируются текстом, обязательных вспышек нет.");
+        }
         void MvpSummary()
         {
+            if(Danger&&HotelPresentation.DangerTerminal(S)){DangerSummary();return;}
             MvpSection("РЕЗУЛЬТАТ СМЕНЫ");
             MvpText("Обслужено: "+S.served+" · выручка: "+S.earned+" ₽ · расходы: "+S.expenses+" ₽",bold);
             MvpText("Баланс: "+S.cash+" ₽ · репутация: "+S.mvp.reputation.ToString("0.0")+" / 5",title,S.cash<0?gold:green);
@@ -612,23 +804,42 @@ namespace WorstHotel
         }
         void MvpBriefing()
         {
+            if(Danger)DangerHelp();
             MvpSection(HotelDirector.Status(S));MvpText(HotelMvpDirector.Status(S));
             MvpText("Подготовка без таймера: бельё, полотенца, кофе, ремонт, прогноз и цены. Открытие и итоги — у стойки, покупки — у доски. Обычная смена длится "+Mathf.RoundToInt(S.dayLength/60)+" минут.");
             MvpText("Выберите гостя явно и проверьте требования к вместимости и качеству. Семью представляет один персонаж за двух человек. По запросам доставляйте полотенца и кофе, убирайте комнату и возвращайте собственный багаж гостя.");
             MvpText("Tab открывает общий обзор. F или средняя кнопка мыши отмечает объект для коллеги на 6 секунд. Просмотр панели освобождает мышь, но не останавливает отель.");
             MvpText("Подсказки и учебный темп настраиваются отдельно. Вводный режим ждёт освоения регистрации, багажа, полотенца, белья и первой протечки.",small,muted);
-            if(S.day<=2&&MvpButton(S.tutorialSkipped?"Показать подсказки":"Скрыть подсказки",Game.Session.IsHost))Send(S.tutorialSkipped?"resumeTutorial":"skipTutorial");
-            if(HotelDirector.IsGuided(S)&&MvpButton("Перейти к обычному темпу…",Game.Session.IsHost))Game.Panel="pace-confirm";
+            if(S.day<=2&&MvpButton(S.tutorialSkipped?"Показать подсказки":"Скрыть подсказки",Game.Session.IsHost&&HotelDangerRules.CanAct(S,Game.Session.LocalId)))Send(S.tutorialSkipped?"resumeTutorial":"skipTutorial");
+            if(HotelDirector.IsGuided(S)&&MvpButton("Перейти к обычному темпу…",Game.Session.IsHost&&HotelDangerRules.CanAct(S,Game.Session.LocalId)))Game.Panel="pace-confirm";
         }
         void MvpFinishConfirmation()
         {
             MvpSection("ПОДВЕСТИ ИТОГИ ДНЯ?");
-            MvpText("В очереди: "+S.guests.Count(g=>g.stage=="queue")+". Не заселённые гости уйдут. Гости с завершением проживания будут рассчитаны; многодневные гости останутся.");
+            if(Danger) {
+                MvpText(HotelDangerRules.Objective(S),bold,gold);
+                MvpText(S.danger.mode=="relief"?"Передышка заканчивается без контрактной премии и без зачёта победы.":
+                    "Победа требует всех целей, минимального времени и живой команды без потерявших сознание. Хост проверит условия при завершении; невыполненный контракт нельзя выдать за победу.");
+                MvpText("Нужно прекратить риск? Физическая тревога у выхода: свободные руки + удержание E. Это эвакуация с провалом, без премии и с расходом "+S.danger.penalty+" ₽.",normal,gold);
+            }
+            bool failedClose=Danger&&S.phase=="closing"&&S.danger.mode!="relief"&&!HotelDangerRules.GoalsMet(S);
+            MvpText(failedClose?"Цели не выполнены. Подтверждение означает ПРОВАЛ: без премии, восстановление −"+S.danger.penalty+" ₽. Неоплаченные проживания будут прерваны без полной оплаты, включая многодневные.":
+                "В очереди: "+S.guests.Count(g=>g.stage=="queue")+". При успешном завершении гости с завершением проживания будут рассчитаны; многодневные гости останутся.");
             MvpText("Неисполненные запросы и недоставленный багаж влияют на отзыв. Грязь и поломки сохранятся. После итогов можно начать подготовку следующего дня.");
             if(MvpButton("Продолжить обслуживание"))Game.Panel="management";
             string reason=MvpStation("desk",true);
-            if(MvpButton("Завершить смену",reason==""&&(S.phase=="open"||S.phase=="closing"),true)){Send("finish");if(S.phase=="summary")Game.Panel="summary";}
+            if(MvpButton(failedClose?"Подтвердить провал и эвакуацию":Danger?"Проверить цели и завершить смену":"Завершить смену",reason==""&&(S.phase=="open"||S.phase=="closing"),true)){Send("finish");if(S.phase=="summary")Game.Panel="summary";}
             MvpReason(reason);
+        }
+        void DangerAbandonConfirmation()
+        {
+            MvpSection("ОТКАЗ ОТ КОНТРАКТА · НЕКОМУ ПРОДОЛЖАТЬ");
+            MvpText("Хост недееспособен, а подключённых сотрудников, способных продолжить работу, нет. Можно ждать возвращения коллеги либо признать провал.");
+            MvpText("Премия не начисляется. Расход на восстановление: "+S.danger.penalty+" ₽. Неоплаченные проживания прерываются без полной оплаты. Покупки сохраняются; следующая подготовка восстановит команду.",normal,gold);
+            if(MvpButton("Ждать коллегу / вернуться"))Game.OpenPanel("");
+            if(MvpButton("Подтвердить провал контракта",Game.Session.IsHost&&HotelDangerRules.HostCanForfeit(S),true)) {
+                Send("abandonDanger");if(S.phase=="summary")Game.Panel="summary";
+            }
         }
         void MvpRefuseConfirmation()
         {
@@ -652,9 +863,10 @@ namespace WorstHotel
         {
             switch(category){case "dirt":case "cleanliness":case "cleaning":return "Чистота";case "equipment":return "Оборудование";case "toilet":return "Туалет / вода";case "tv":case "lamp":return "ТВ / освещение";case "towel":return "Полотенца";case "waiting":case "queue":return "Ожидание";case "luggage":return "Багаж";case "noise":return "Шум";case "coffee":return "Кофе";case "water":return "Вода";case "power":return "Электричество";default:return category;}
         }
-        static string MvpTargetName(string target)
+        string MvpTargetName(string target)
         {
             if(string.IsNullOrEmpty(target))return "отель";
+            if(Danger&&HotelDangerRules.IsWorkTarget(target))return HotelPresentation.DangerTargetName(S,target);
             switch(target){case "desk":return "Ресепшен";case "board":return "Доска управления";case "coffee":return "Кофейная станция";case "utility_water":return "Общая вода";case "utility_power":return "Электрощит";case "linen":return "Чистое бельё";case "towels":return "Полотенца";case "hamper":return "Приёмник белья";case "bin":return "Мусорный бак";case "tools":return "Инструменты";}
             string[] parts=target.Split('_');
             if(parts.Length==2&&int.TryParse(parts[1],out int room)) {
@@ -709,10 +921,10 @@ namespace WorstHotel
         }
         void Pause()
         {
-            Frame("Перевести дух",Game.Session.PlaytestSlot?"Тестовый слот MVP · основной отель не затронут. Мир продолжает жить.":"Меню не ставит мир на паузу. Учебный таймер ждёт освоения основ; работа и движение продолжаются.");
+            Frame("Перевести дух",Game.Session.PlaytestSlot?"Отдельный тестовый слот · основной отель не затронут. Мир продолжает жить.":"Меню не ставит мир на паузу. Учебный таймер ждёт освоения основ; работа и движение продолжаются.");
             if(Button(new Rect(320,305,800,58),"Вернуться в отель",true,true))Game.OpenPanel("");
             if(Button(new Rect(320,379,800,52),"Настройки камеры и звука"))Game.OpenPanel("settings");
-            if(Button(new Rect(320,449,800,52),"Задачи и состояние номеров"))Game.OpenPanel("tasks");
+            if(Button(new Rect(320,449,800,52),Danger&&HotelPresentation.DangerTerminal(S)?"Результат смены / следующий день":"Задачи и состояние номеров"))Game.OpenPanel(Danger&&HotelPresentation.DangerTerminal(S)?"summary":"tasks");
             if(Button(new Rect(320,519,800,52),"Сохранить отель",Game.Session.IsHost)){if(Game.Session.Save())Game.Notify("Сохранено.");}
             if(Button(new Rect(320,586,800,48),"План смены / подсказки / учебный темп"))Game.Panel="briefing";
             if(Button(new Rect(320,650,800,45),Game.Session.IsHost?"Сохранить и закрыть сессию":"Покинуть сессию"))Game.Leave();

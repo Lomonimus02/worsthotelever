@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 if (!(Test-Path -LiteralPath $exePath)) { throw 'Build the MVP Windows player first.' }
 $started = Get-Date
 $logPath = Join-Path $resultsPath 'mvp-interaction-player.log'
-$arguments = "-whe-host -whe-port 17787 -whe-session-tests -whe-case mvp-interaction -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
+$arguments = "-whe-host -whe-port 17787 -whe-session-tests -whe-mvp-fixture -whe-case mvp-interaction -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
 $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {
     $deadline = (Get-Date).AddSeconds(120)

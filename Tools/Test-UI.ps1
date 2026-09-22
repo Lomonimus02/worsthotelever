@@ -9,7 +9,7 @@ $scenario = if ($Mvp) { 'mvp-ui' } else { 'ui' }
 $logPath = Join-Path $resultsPath "$scenario-player.log"
 # The fixture resizes the initial window to both target sizes before capturing its backbuffer.
 # Requires an unlocked Windows desktop / graphics device; this is not a headless render test.
-$fixture = if ($Mvp) { '' } else { '-whe-legacy-fixture' }
+$fixture = if ($Mvp) { '-whe-mvp-fixture' } else { '-whe-legacy-fixture' }
 $arguments = "-whe-host -whe-port 17781 -whe-session-tests $fixture -whe-case $scenario -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
 $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {

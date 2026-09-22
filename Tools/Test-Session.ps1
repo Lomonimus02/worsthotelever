@@ -7,7 +7,7 @@ if (!(Test-Path -LiteralPath $exePath)) { throw 'Build the Windows player first.
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 function Start-Scenario([string]$Scenario, [string]$Connection) {
     $logPath = Join-Path $resultsPath "$Scenario-player.log"
-    $fixture = if ($Mvp) { '' } else { '-whe-legacy-fixture' }
+    $fixture = if ($Mvp) { '-whe-mvp-fixture' } else { '-whe-legacy-fixture' }
     $arguments = "-whe-session-tests $fixture -whe-case $Scenario $Connection -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$logPath`""
     Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 }

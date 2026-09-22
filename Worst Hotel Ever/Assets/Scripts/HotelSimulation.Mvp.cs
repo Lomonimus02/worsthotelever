@@ -109,6 +109,7 @@ namespace WorstHotel
 
         private bool MvpTargetExists(string target)
         {
+            if (HotelDangerRules.Enabled(State) && HotelDangerRules.TryTarget(State, target, out _)) return true;
             if (string.IsNullOrEmpty(target)) return false;
             if (target.StartsWith("guest_", StringComparison.Ordinal) && int.TryParse(target.Substring(6), out int guestId))
                 return State.guests.Exists(g => g.id == guestId && g.stage != "gone");
@@ -129,6 +130,7 @@ namespace WorstHotel
 
         private void MvpStep(float dt)
         {
+            if (HotelDangerRules.Enabled(State)) DangerStep(dt);
             bool running = State.phase == "open" || State.phase == "closing";
             if (!running)
             {
@@ -174,6 +176,7 @@ namespace WorstHotel
             if (!State.rooms.Exists(r => r.mvp.owned && (r.guestId != 0 || (!r.outOfService && r.bed == 2 && !r.leak && r.water <= .65f))))
                 return "Подготовьте хотя бы один открытый чистый номер. Ремонт и бельё доступны в подготовке.";
             State.phase = "open";
+            if (HotelDangerRules.Enabled(State)) DangerOpened();
             State.notice = "Отель открыт. Проверьте расписание и встречайте гостей.";
             HospitalityStep(0);
             return "";
@@ -214,6 +217,8 @@ namespace WorstHotel
             Log("День " + State.day + ": снабжение и содержание −" + cost);
             State.notice = "День " + State.day + ". Грязь, поломки и ночующие гости сохранены. Запасы пополнены, прогноз готов.";
             HotelOnboarding.Record(State, HotelTutorialSkill.NextDay);
+            if (HotelDangerRules.Enabled(State)) DangerPrepare();
+            else if (dangerPromotionPending) TryPromoteDanger();
             return "";
         }
 

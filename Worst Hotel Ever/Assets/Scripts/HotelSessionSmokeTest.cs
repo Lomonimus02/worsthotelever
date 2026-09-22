@@ -45,7 +45,7 @@ namespace WorstHotel
                 scenario="playtest-path";
                 // Deliberately no -whe-session-tests: exercise the actual human launcher path,
                 // without hosting or creating/modifying either persistent save slot.
-                string expected=Path.Combine(Application.persistentDataPath,"hotel-playtest-mvp.json");
+                string expected=Path.Combine(Application.persistentDataPath,game.Session.DangerPlaytestSlot?"hotel-playtest-danger.json":"hotel-playtest-mvp.json");
                 if(!Check(game.Session.PlaytestSlot&&string.Equals(Path.GetFullPath(game.Session.SavePath),Path.GetFullPath(expected),StringComparison.OrdinalIgnoreCase)&&
                     !game.Session.OwnsHotel&&!game.Playing,"Human playtest arguments selected the wrong slot"))yield break;
                 yield return new WaitForSecondsRealtime(.7f);
@@ -57,7 +57,7 @@ namespace WorstHotel
                     int lit=0;var pixels=menu.GetPixels32();
                     for(int i=0;i<pixels.Length;i+=64)if(pixels[i].r+pixels[i].g+pixels[i].b>70)lit++;
                     if(!Check(lit>100,"Playtest menu capture is blank"))yield break;
-                    File.WriteAllBytes(Path.Combine(directory,"mvp-playtest-menu.png"),menu.EncodeToPNG());
+                    File.WriteAllBytes(Path.Combine(directory,game.Session.DangerPlaytestSlot?"danger-playtest-menu.png":"mvp-playtest-menu.png"),menu.EncodeToPNG());
                 }finally{Destroy(menu);}
                 checks.Add("HUMAN_PLAYTEST_FLAG_SELECTS_STABLE_SEPARATE_SLOT_WITHOUT_HOSTING");
                 Finish(errors.Count==0);yield break;
@@ -75,6 +75,10 @@ namespace WorstHotel
             if(scenario=="ui") {yield return ReviewUI();Finish(errors.Count==0);yield break;}
             if(scenario=="mvp-ui") {yield return ReviewMvpUI();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="mvp-interaction") {yield return ReviewMvpInteraction();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="danger-interaction") {yield return ReviewDangerInteraction();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="danger-forfeit") {yield return ReviewDangerForfeit();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="danger-checkpoint-write"||scenario=="danger-checkpoint-read") {yield return ReviewDangerCheckpoint();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="danger-coop-host"||scenario=="danger-coop-client") {yield return ReviewDangerCoop();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="legacy-oversize") {yield return ReviewOversizedLegacy();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="mvp-soak") {
                 try {

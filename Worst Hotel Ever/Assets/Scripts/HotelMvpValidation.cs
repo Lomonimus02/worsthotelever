@@ -6,7 +6,8 @@ using UnityEngine;
 
 namespace WorstHotel
 {
-    // Structural validation only. Never runs simulation/rules queries, repairs data or draws RNG.
+    // Structural validation only; danger targets use the agreed read-only rules API.
+    // Never runs gameplay, repairs data or draws RNG.
     public static class HotelMvpValidation
     {
         // Both transports budget the expanded snapshot as UTF-16 JSON plus framing.
@@ -21,7 +22,8 @@ namespace WorstHotel
         {
             // Version checks deliberately precede every structural check, including null MVP data.
             HotelSaveStore.RejectFutureVersions(state);
-            Need(state != null && state.version == 2 && state.contentVersion == 2 && state.mvp != null, "Missing or mismatched save-v2 schema.");
+            Need(state != null && (state.version == 2 || state.version == 3) && state.contentVersion == state.version && state.mvp != null,
+                "Missing or mismatched MVP schema.");
             MvpHotelState mvp = state.mvp;
             Need(mvp.schema == 2, "MVP state is missing its explicit schema marker.");
             Id(state.worldId); Text(state.notice, 1024);
@@ -50,6 +52,7 @@ namespace WorstHotel
 
             var rooms = Rooms(state);
             var guests = Guests(state, rooms);
+            if (state.version == 3) HotelDangerValidation.Validate(state);
             PlayersAndItems(state, rooms, guests);
             Hospitality(state, rooms, guests);
             DirectorAndPings(state, rooms);
@@ -134,7 +137,7 @@ namespace WorstHotel
                 Text(player.held, 128); Text(player.workTarget, 128);
                 Need(Range(player.workProgress, 0, 1) && Clock(player.workLastSeen), "Invalid work lease timer.");
                 if (string.IsNullOrEmpty(player.workTarget)) Need(player.workProgress == 0 && player.workLastSeen == 0, "Inactive work lease has progress.");
-                else Need(WorkTarget(player.workTarget, rooms) && leases.Add(player.workTarget), "Invalid/duplicate work lease.");
+                else Need(WorkTarget(state, player.workTarget, rooms) && leases.Add(player.workTarget), "Invalid/duplicate work lease.");
                 players.Add(player.id, player);
             }
             var items = new Dictionary<string, ItemState>(StringComparer.Ordinal);
@@ -177,7 +180,12 @@ namespace WorstHotel
                 ItemState held = null;
                 if (!string.IsNullOrEmpty(player.held))
                     Need(items.TryGetValue(player.held, out held) && !held.consumed && held.holder == (long)player.id, "Broken hand/item link.");
-                if (!string.IsNullOrEmpty(player.workTarget)) WorkTool(player.workTarget, held);
+                if (!string.IsNullOrEmpty(player.workTarget))
+                {
+                    if (state.version == 3 && HotelDangerRules.IsWorkTarget(player.workTarget))
+                        HotelDangerValidation.ValidateWork(state, player, held);
+                    else WorkTool(player.workTarget, held);
+                }
             }
             foreach (GuestState guest in guests.Values)
             {
@@ -393,6 +401,20 @@ namespace WorstHotel
                 valid = rooms[number].mvp.owned && e != null && fault <= e.episode &&
                     ((parts[1] == "toilet" && c.category == "toilet") || (OneOf(parts[1], "tv", "lamp") && c.category == "tv"));
             }
+            else if (state.version == 3 && parts.Length == 4 && parts[0] == "danger" &&
+                int.TryParse(parts[2], out int hazardRoom) && int.TryParse(parts[3], out int serial) &&
+                rooms.ContainsKey(hazardRoom) && rooms[hazardRoom].mvp.owned && state.danger != null)
+            {
+                valid = serial > 0 && serial <= state.danger.serial && parts[2] == hazardRoom.ToString() && parts[3] == serial.ToString() &&
+                    ((parts[1] == "electric" && c.category == "tv") || (parts[1] == "steam" && c.category == "toilet") ||
+                     (parts[1] == "fumes" && c.category == "dirt"));
+                // Hospitality retains room complaints during relocation/checkout until the
+                // guest reaches the new room or settles; a repair is not a recovery reward yet.
+                bool deferred = active && guests.TryGetValue(c.guestId, out GuestState affected) && OneOf(affected.stage, "walking", "checkout");
+                if (active) valid = valid && serial == state.danger.serial && state.danger.incidents.Exists(i =>
+                    i.room == hazardRoom && i.kind == parts[1] &&
+                    (i.status == "warning" || i.status == "active" || (i.status == "resolved" && deferred)));
+            }
             Need(valid, "Invalid complaint cause/reference.");
         }
 
@@ -415,8 +437,10 @@ namespace WorstHotel
         private static bool Committed(MvpReservationState r) { return OneOf(r.status, "confirmed", "arrived", "staying"); }
         private static bool Overlap(int a, int b, int c, int d) { return a < d && c < b; }
 
-        private static bool WorkTarget(string target, Dictionary<int, RoomState> rooms)
+        private static bool WorkTarget(HotelState state, string target, Dictionary<int, RoomState> rooms)
         {
+            if (state.version == 3 && HotelDangerRules.IsWorkTarget(target))
+                return HotelDangerValidation.Target(state, target);
             return OneOf(target, "coffee", "utility_water", "utility_power") || RoomTarget(target, rooms, "bed", "sink", "water", "trash", "toilet", "tv", "lamp", "clean", "dirtytowel");
         }
 
@@ -447,7 +471,8 @@ namespace WorstHotel
             {
                 Need(p != null && p.playerId <= long.MaxValue && authors.Add(p.playerId) && Range(p.until, 0, state.mvp.elapsed + 6.01f), "Invalid ping author/expiry.");
                 Need(OneOf(p.target, "desk", "board", "coffee", "linen", "towels", "hamper", "bin", "tools", "utility_water", "utility_power") ||
-                    RoomTarget(p.target, rooms, "bed", "sink", "water", "towel", "trash", "bag", "door", "toilet", "tv", "lamp", "coffee", "clean", "dirtytowel"), "Unknown ping target.");
+                    RoomTarget(p.target, rooms, "bed", "sink", "water", "towel", "trash", "bag", "door", "toilet", "tv", "lamp", "coffee", "clean", "dirtytowel") ||
+                    (state.version == 3 && HotelDangerValidation.Target(state, p.target)), "Unknown ping target.");
                 // A marker can outlive a disconnected author. Its target and six-second expiry
                 // remain authoritative; Load intentionally releases players without deleting it.
             }

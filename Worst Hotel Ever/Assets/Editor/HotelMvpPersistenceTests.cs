@@ -100,7 +100,7 @@ namespace WorstHotel
                 HotelState good = New(); HotelSaveStore.Save(good, path); HotelSaveStore.Save(good, path);
                 string primary = File.ReadAllText(path), backup = File.ReadAllText(path + ".bak");
                 foreach (Action<HotelState> future in new Action<HotelState>[] {
-                    s => s.version = 3, s => s.contentVersion = 3, s => s.mvp.rngVersion = 2 })
+                    s => s.version = 4, s => s.contentVersion = 4, s => s.mvp.rngVersion = 2 })
                 {
                     HotelState state = Copy(good); future(state); state.rooms = null;
                     Throws<NotSupportedException>(() => HotelSaveStore.Validate(state));
@@ -111,14 +111,14 @@ namespace WorstHotel
                     Throws<NotSupportedException>(() => HotelSaveStore.Save(good, path));
                     Need(File.ReadAllText(path) == unsupported && File.ReadAllText(path + ".bak") == backup, "Future payload changed files.");
                 }
-                File.WriteAllText(path, "{\"format\":\"unknown\",\"version\":3}");
+                File.WriteAllText(path, "{\"format\":\"unknown\",\"version\":4}");
                 Throws<NotSupportedException>(() => HotelSaveStore.Load(path));
                 Throws<NotSupportedException>(() => HotelSaveStore.Save(good, path));
                 File.WriteAllText(path, JsonUtility.ToJson(new Envelope { version = 2, checksum = "wrong",
-                    payload = "{\"version\":3,\"contentVersion\":3,\"rooms\":{\"futureShape\":true}}" }));
+                    payload = "{\"version\":4,\"contentVersion\":4,\"rooms\":{\"futureShape\":true}}" }));
                 Throws<NotSupportedException>(() => HotelSaveStore.Load(path));
                 File.WriteAllText(path, primary);
-                File.WriteAllText(path + ".bak", "{\"format\":\"WorstHotelSave\",\"version\":3}");
+                File.WriteAllText(path + ".bak", "{\"format\":\"WorstHotelSave\",\"version\":4}");
                 Throws<NotSupportedException>(() => HotelSaveStore.Save(good, path));
                 Need(File.ReadAllText(path) == primary, "Future backup overwritten by valid primary save.");
                 File.WriteAllText(path, "{}");

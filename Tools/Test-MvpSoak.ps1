@@ -10,7 +10,7 @@ for ($part = 0; $part -lt $parts.Count; $part++) {
     $count = $parts[$part]
     $load = if ($part -gt 0) { '-whe-load' } else { '' }
     $logPath = Join-Path $resultsPath "mvp-soak-part-$part.log"
-    $arguments = "-whe-host $load -whe-port 17786 -whe-session-tests -whe-soak -whe-case mvp-soak -whe-soak-days $count -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
+    $arguments = "-whe-host $load -whe-port 17786 -whe-session-tests -whe-mvp-fixture -whe-soak -whe-case mvp-soak -whe-soak-days $count -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
     $started = Get-Date
     $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
     try {

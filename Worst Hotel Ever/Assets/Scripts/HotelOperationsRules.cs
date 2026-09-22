@@ -28,8 +28,8 @@ namespace WorstHotel
             MvpEquipmentState item = FindEquipment(state, number, kind);
             if (state == null || state.mvp == null || state.mvp.utilities == null || room == null || room.mvp == null || !room.mvp.owned ||
                 item == null || !item.installed || item.localFault) return false;
-            if (kind == "sink" || kind == "toilet") return !state.mvp.utilities.waterFault;
-            if (kind == "tv" || kind == "lamp") return !state.mvp.utilities.powerFault;
+            if (kind == "sink" || kind == "toilet") return HotelDangerRules.WaterAvailable(state, number);
+            if (kind == "tv" || kind == "lamp") return HotelDangerRules.PowerAvailable(state, number);
             return false;
         }
         public static string PurchaseBlockReason(HotelState state, string id, int number)

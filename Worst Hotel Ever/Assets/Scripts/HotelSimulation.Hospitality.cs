@@ -74,6 +74,7 @@ namespace WorstHotel
             State.notice = g.name + " заселён в " + number + (g.mvp.partySize > 1 ? " · 2 человека." : ".");
             RefreshRequestFulfillment();
             UpdateHospitalityGroups();
+            if (HotelDangerRules.Enabled(State)) DangerService();
             return "";
         }
 
@@ -502,6 +503,7 @@ namespace WorstHotel
                 // Towel/coffee fulfillment is explicitly marked by the successful delivery operation.
                 if (request.status != "fulfilled" || request.rewarded) continue;
                 request.rewarded = true;
+                if (HotelDangerRules.Enabled(State)) DangerService();
                 HospitalityMemory(g, "Выполнен запрос: " + HotelHospitalityRules.RequestName(request.kind), g.mvp.trait == "friendly" ? 7 : 5);
                 if (request.kind == "towel") HotelOnboarding.Record(State, HotelTutorialSkill.ExtraTowel);
                 if (request.kind == "luggage") HotelOnboarding.Record(State, HotelTutorialSkill.DeliverBag);

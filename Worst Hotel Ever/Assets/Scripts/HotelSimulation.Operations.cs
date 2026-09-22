@@ -317,7 +317,7 @@ namespace WorstHotel
                 if (room.mvp == null || !room.mvp.owned) continue;
                 MvpEquipmentState sink = HotelOperationsRules.FindEquipment(State, room.number, "sink");
                 room.leak = sink != null && sink.installed && sink.localFault;
-                if (room.leak && !State.mvp.utilities.waterFault) room.water = Mathf.Min(1, room.water + dt * .007f);
+                if (room.leak && HotelDangerRules.WaterAvailable(State, room.number)) room.water = Mathf.Min(1, room.water + dt * .007f);
                 GuestState guest = Guest(room.guestId);
                 if (guest == null || guest.stage != "staying" || guest.mvp == null || paused) continue;
                 occupied++;

@@ -37,18 +37,23 @@ namespace WorstHotel.BuildTools
                 Run("MvpPresentation",HotelMvpPresentationTests.RunAll);
                 Run("MvpWorld",HotelMvpWorldTests.RunAll);
                 Run("MvpLongRun",HotelMvpLongRunTests.RunAll);
+                Run("DangerGameplay",HotelDangerTests.RunAll);
+                Run("DangerPersistence",HotelDangerPersistenceTests.RunAll);
+                Run("DangerComplaints",HotelDangerComplaintTests.RunAll);
+                Run("DangerPresentation",HotelDangerPresentationTests.RunAll);
+                Run("DangerWorld",HotelDangerWorldTests.RunAll);
                 File.WriteAllLines(Path.Combine(Root,"TestResults","simulation-tests.txt"),results);
                 if(failures.Count!=0)throw new AggregateException("Native suites failed: "+failures.Count,failures);
                 Debug.Log("WHE_TESTS_PASSED count="+results.Count);
             } catch(Exception e) {File.WriteAllText(Path.Combine(Root,"TestResults","simulation-tests-failed.txt"),e.ToString());throw;}
         }
-        [MenuItem("Worst Hotel/Build Windows MVP candidate")]
+        [MenuItem("Worst Hotel/Build Windows danger alpha")]
         public static void BuildWindows()
         {
             Validate();
             EditorSettings.serializationMode=SerializationMode.ForceText;
             PlayerSettings.companyName="Almost Grand";PlayerSettings.productName="Worst Hotel Ever";
-            PlayerSettings.bundleVersion="1.0.0";
+            PlayerSettings.bundleVersion="1.1.0";
             PlayerSettings.runInBackground=true;PlayerSettings.resizableWindow=true;
             PlayerSettings.defaultScreenWidth=1440;PlayerSettings.defaultScreenHeight=900;
             PlayerSettings.fullScreenMode=FullScreenMode.Windowed;
@@ -77,12 +82,16 @@ namespace WorstHotel.BuildTools
                 string target=Path.Combine(folder,"ThirdPartyNotices",Path.GetRelativePath(licenses,file));
                 Directory.CreateDirectory(Path.GetDirectoryName(target));File.Copy(file,target,true);
             }
-            string readme=Path.Combine(Root,"README_MVP.md");
+            string readme=Path.Combine(Root,"README_DANGER.md");
             if(File.Exists(readme))File.Copy(readme,Path.Combine(folder,"READ_ME_RU.md"),true);
             string status=Path.Combine(Root,"docs","IMPLEMENTATION_STATUS.md");
             if(File.Exists(status)){Directory.CreateDirectory(Path.Combine(folder,"docs"));File.Copy(status,Path.Combine(folder,"docs","IMPLEMENTATION_STATUS.md"),true);}
             string launcher=Path.Combine(Root,"Tools","PLAYTEST_MVP.cmd");
             if(File.Exists(launcher))File.Copy(launcher,Path.Combine(folder,"PLAYTEST_MVP.cmd"),true);
+            string dangerLauncher=Path.Combine(Root,"Tools","PLAYTEST_DANGER.cmd");
+            if(File.Exists(dangerLauncher))File.Copy(dangerLauncher,Path.Combine(folder,"PLAYTEST_DANGER.cmd"),true);
+            string dangerGuide=Path.Combine(Root,"docs","DANGER_PLAYTEST_RU.md");
+            if(File.Exists(dangerGuide))File.Copy(dangerGuide,Path.Combine(folder,"docs","DANGER_PLAYTEST_RU.md"),true);
             string playtest=Path.Combine(Root,"docs","MVP_TWO_PC_PLAYTEST_RU.md");
             if(File.Exists(playtest)){Directory.CreateDirectory(Path.Combine(folder,"docs"));File.Copy(playtest,Path.Combine(folder,"docs","MVP_TWO_PC_PLAYTEST_RU.md"),true);}
             string collector=Path.Combine(Root,"Tools","Collect-PlaytestDiagnostics.ps1");

@@ -14,7 +14,8 @@ namespace WorstHotel
         public float Sensitivity = .105f, Fov = 82, Volume = .55f;
         public bool InvertY, Bob, HandMotion=true, AmbientSound=true;
         public HotelAudio Audio { get; private set; }
-        public string ConfirmedWork => InputActive && workTarget!="" && LocalPlayer?.workTarget==workTarget ? workTarget : "";
+        public string ConfirmedWork => InputActive && workTarget!="" && LocalPlayer?.workTarget==workTarget &&
+            HotelPresentation.DangerWorkIntentAllowed(Session.State,Session.LocalId,workTarget) ? workTarget : "";
         public bool Automated { get; private set; }
         public float FPS { get; private set; }
         public bool Playing => Session.Connected;
@@ -24,6 +25,9 @@ namespace WorstHotel
         GameObject player, carry; Transform handAnchor;
         Material sleeveMaterial, gloveMaterial;
         string carryKind="", oldNotice="", workTarget="";
+        string inputDangerWorld="";
+        int inputDangerSerial=-1;
+        bool wasIncapacitated;
         float yaw, pitch, vertical, nextPose, nextHeartbeat, toastUntil, stepAt, cameraBob, fpsSmooth=60;
         readonly HotelFeedback feedback = new HotelFeedback();
         HotelState preview;
@@ -100,6 +104,8 @@ namespace WorstHotel
             fpsSmooth=Mathf.Lerp(fpsSmooth,1f/Mathf.Max(Time.unscaledDeltaTime,.001f),.04f); FPS=fpsSmooth;
             AudioListener.volume=Volume;
             View.fieldOfView=Mathf.Lerp(View.fieldOfView,Fov,Time.unscaledDeltaTime*8);
+            // A down/terminal snapshot cancels local intent before feedback can mistake it for success.
+            if(Playing && workTarget!="" && !HotelPresentation.DangerWorkIntentAllowed(Session.State,Session.LocalId,workTarget)) StopWork();
             // Observe the received result before release/ESC/heartbeat cleanup can cancel local intent.
             HotelCue cues=Playing?feedback.Observe(Session.State,Session.LocalId):HotelCue.None;
             var keyboard=Keyboard.current;
@@ -107,7 +113,8 @@ namespace WorstHotel
                 Panel=Playing?(Panel==""?"pause":""):"menu"; StopWork(); SetCursor();
             }
             if(Playing && keyboard!=null && keyboard.tabKey.wasPressedThisFrame) {
-                OpenPanel(Panel=="tasks"?"":"tasks");
+                string overview=HotelPresentation.DangerTerminal(Session.State)?"summary":"tasks";
+                OpenPanel(Panel==overview?"":overview);
             }
             if(!Playing) {
                 if(player!=null) {
@@ -119,37 +126,60 @@ namespace WorstHotel
                 if(Session.NeedsRecovery)Panel="recovery";
                 else if(!Session.Connecting && Panel!="menu" && Panel!="connect" && Panel!="new" && Panel!="settings" && Panel!="steam") Panel="menu";
                 feedback.Reset();Audio.Silence();workTarget="";oldNotice="";
+                inputDangerWorld="";inputDangerSerial=-1;wasIncapacitated=false;
                 View.transform.position=new Vector3(3.7f+Mathf.Sin(Time.unscaledTime*.08f)*.35f,2.25f,-5.8f);
                 View.transform.LookAt(new Vector3(-.4f,1.2f,1.7f)); SetCursor(); return;
             }
             if(player==null) CreatePlayer();
+            bool canAct=HotelDangerRules.CanAct(Session.State,Session.LocalId);
+            if(HotelDangerRules.Enabled(Session.State)) {
+                bool newPreparation=inputDangerWorld!=Session.State.worldId||inputDangerSerial!=Session.State.danger.serial;
+                if(newPreparation||(wasIncapacitated&&canAct)) {
+                    // Apply the host's recovery/new-day pose before the first local pose can overwrite it.
+                    if(LocalPlayer!=null)Teleport(LocalPlayer.position);
+                    StopWork();cameraBob=0;View.transform.localPosition=Vector3.up*1.65f;
+                }
+                inputDangerWorld=Session.State.worldId;inputDangerSerial=Session.State.danger.serial;
+                wasIncapacitated=!canAct;
+            }
+            if(!canAct) {
+                var crew=HotelDangerRules.Crew(Session.State,Session.LocalId);
+                if(crew!=null)Teleport(crew.position);
+                cameraBob=0;vertical=0;
+                View.transform.localPosition=new Vector3(0,1.05f,0);
+            }
+            if(handAnchor!=null)handAnchor.gameObject.SetActive(canAct);
             World.Apply(Session.State,Session.LocalId);
             if(oldNotice!=Session.State.notice) { oldNotice=Session.State.notice; Notify(oldNotice); }
             if(InputActive && keyboard!=null) {
-                if(!Automated)Look(); Move(); Focus();
+                if(!Automated)Look(); if(canAct)Move(); Focus();
                 if(keyboard.eKey.wasPressedThisFrame) Interact();
-                if(Session.State.mvp != null && (keyboard.fKey.wasPressedThisFrame || (Mouse.current?.middleButton.wasPressedThisFrame ?? false)) && FocusId != "")
+                if(canAct && Session.State.mvp != null && (keyboard.fKey.wasPressedThisFrame || (Mouse.current?.middleButton.wasPressedThisFrame ?? false)) && FocusId != "")
                     Session.Send(new HotelCommand("ping", FocusId));
                 if(keyboard.eKey.wasReleasedThisFrame) StopWork();
                 if(workTarget!="" && (FocusId!=workTarget || !keyboard.eKey.isPressed)) StopWork();
                 if(workTarget!="" && Time.unscaledTime>nextHeartbeat) {
                     nextHeartbeat=Time.unscaledTime+.15f; Session.Send(new HotelCommand("heartbeat",workTarget));
                 }
-                if(keyboard.qKey.wasPressedThisFrame && Held!=null) {
+                if(canAct && keyboard.qKey.wasPressedThisFrame && Held!=null) {
                     StopWork(); var drop=View.transform.position+View.transform.forward*.85f; drop.y=.18f;
                     if(Physics.Raycast(View.transform.position,View.transform.forward,out var obstruction,1.2f)) drop=obstruction.point-View.transform.forward*.35f;
                     Session.Send(new HotelCommand("drop"){position=drop});
                 }
                 if(keyboard.f5Key.wasPressedThisFrame) { if(Session.Save()) Notify("Отель сохранён."); else if(!Session.IsHost) Notify("Сохранением управляет хост."); }
-            } else { FocusLabel=""; FocusId=""; }
-            if(Time.unscaledTime>nextPose) {
+            } else {
+                // Self-help is a durable virtual focus, including while a panel owns keyboard input.
+                if(HotelDangerRules.Crew(Session.State,Session.LocalId)?.life=="downed")Focus();
+                else { FocusLabel=""; FocusId=""; }
+            }
+            if(canAct && Time.unscaledTime>nextPose) {
                 nextPose=Time.unscaledTime+.05f;
                 Session.Send(new HotelCommand("pose"){position=player.transform.position,yaw=yaw,pitch=pitch});
             }
             UpdateCarry();
             Audio.Apply(Session.State,cues,ConfirmedWork,AmbientSound);
             if(Toast!="" && Time.unscaledTime>toastUntil) Toast="";
-            if(LocalPlayer!=null && Vector3.Distance(LocalPlayer.position,player.transform.position)>2.5f) Teleport(LocalPlayer.position);
+            if(canAct && LocalPlayer!=null && Vector3.Distance(LocalPlayer.position,player.transform.position)>2.5f) Teleport(LocalPlayer.position);
         }
         void Look()
         {
@@ -189,6 +219,16 @@ namespace WorstHotel
         void Focus()
         {
             FocusId=""; FocusLabel="";
+            if(HotelDangerRules.Enabled(Session.State) && !HotelDangerRules.CanAct(Session.State,Session.LocalId)) {
+                var crew=HotelDangerRules.Crew(Session.State,Session.LocalId);
+                if(crew?.life=="downed") {
+                    FocusId="recover_"+crew.slot;
+                    FocusLabel=HotelPresentation.DangerTerminal(Session.State)?"Смена завершена. TAB → итоги; новую подготовку начинает хост.":
+                        HotelPresentation.FocusText(Session.State,Session.LocalId,FocusId,"");
+                } else FocusLabel=HotelPresentation.DangerTerminal(Session.State)?"Смена завершена. TAB → итоги; новую подготовку начинает хост.":
+                    "Вы погибли до конца смены. Можно смотреть по сторонам и открыть TAB / ESC. Коллега ещё может завершить смену.";
+                return;
+            }
             if(!Physics.Raycast(View.transform.position,View.transform.forward,out var hit,3.15f,~(1<<2),QueryTriggerInteraction.Ignore)) return;
             var target=hit.collider.GetComponentInParent<HotelTarget>(); if(target==null) return;
             FocusId=target.id; FocusLabel=target.label;
@@ -197,6 +237,13 @@ namespace WorstHotel
         void Interact()
         {
             if(FocusId=="")return;
+            if(HotelDangerRules.Enabled(Session.State) && HotelDangerRules.IsWorkTarget(FocusId)) {
+                string reason=HotelDangerRules.WorkError(Session.State,Session.LocalId,FocusId);
+                if(reason!=""){Notify(reason);return;}
+                workTarget=FocusId;feedback.BeginWork();Session.Send(new HotelCommand("beginwork",workTarget));nextHeartbeat=0;
+                return;
+            }
+            if(!HotelDangerRules.CanAct(Session.State,Session.LocalId))return;
             if(FocusId=="desk") { OpenPanel("reception"); return; }
             if(FocusId=="board") { OpenPanel("management"); return; }
             if(FocusId.StartsWith("door_")) { OpenPanel("rooms"); return; }

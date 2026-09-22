@@ -64,9 +64,12 @@ namespace WorstHotel
             if (relocating && number == g.room) return "Гость уже живёт в этом номере.";
             if (r.bed != 2) return "Сначала застелите чистую кровать.";
             if (r.leak || r.water > .65f) return "Сначала устраните аварийное состояние номера.";
+            HotelIncidentState danger = HotelDangerRules.Incident(s, number);
+            if (HotelDangerRules.Enabled(s) && s.danger.status == "active" && danger != null && (danger.status == "warning" || danger.status == "active"))
+                return "Сначала устраните опасную аварию в номере.";
             if (g.mvp.requiresWater && (s.mvp.utilities.waterFault || !Effective(s, r, "sink") || !Effective(s, r, "toilet")))
                 return "Гостю нужна исправная вода, раковина и туалет.";
-            if (g.mvp.requiresPower && s.mvp.utilities.powerFault) return "Гостю нужно электричество.";
+            if (g.mvp.requiresPower && !HotelDangerRules.PowerAvailable(s, number)) return "Гостю нужно электричество.";
             if (g.mvp.minTvQuality > 0 && !Effective(s, r, "tv")) return "Обещанный TV сейчас не работает.";
             return "";
         }
@@ -77,7 +80,7 @@ namespace WorstHotel
         {
             MvpEquipmentState e = Equipment(r, kind);
             if (e == null || !e.installed || e.localFault) return false;
-            return kind == "sink" || kind == "toilet" ? !s.mvp.utilities.waterFault : !s.mvp.utilities.powerFault;
+            return kind == "sink" || kind == "toilet" ? HotelDangerRules.WaterAvailable(s, r.number) : HotelDangerRules.PowerAvailable(s, r.number);
         }
         public static bool CleanForRequest(RoomState r)
         { return r != null && r.mvp != null && r.mvp.dirt <= .05f && r.mvp.binFill <= .05f && !r.trash && r.mvp.dirtyTowels == 0 && r.water <= .01f; }
@@ -124,6 +127,13 @@ namespace WorstHotel
                 Add(list, "toilet", "utility:water:" + s.mvp.utilities.waterEpisode, "Нет общей воды");
             if (s.mvp.utilities.powerFault)
                 Add(list, "tv", "utility:power:" + s.mvp.utilities.powerEpisode, "Нет электричества");
+            HotelIncidentState danger = HotelDangerRules.Incident(s, room.number);
+            if (HotelDangerRules.Enabled(s) && s.danger.status == "active" && danger != null && (danger.status == "active" || danger.status == "warning"))
+            {
+                string category = danger.kind == "electric" ? "tv" : danger.kind == "steam" ? "toilet" : "dirt";
+                Add(list, category, "danger:" + danger.kind + ":" + room.number + ":" + s.danger.serial,
+                    danger.isolated ? "Аварийная изоляция номера: ожидаю устранения источника" : "Опасная авария: " + HotelDangerRules.KindName(danger.kind));
+            }
             foreach (string kind in new[] { "toilet", "tv", "lamp" })
             {
                 MvpEquipmentState e = Equipment(room, kind);

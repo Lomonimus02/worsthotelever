@@ -12,9 +12,12 @@ namespace WorstHotel
     // One authority and one simulation. Clients send intentions, never modified hotel data.
     public sealed class HotelSession : MonoBehaviour
     {
-        public const string Protocol = "WHE-mvp-4";
+        public const string Protocol = "WHE-danger-5";
         // Only the explicit automated legacy fixture flag selects the old regression world.
         public bool UseLegacyFixture { get; set; }
+        // Classic-v2 is an explicit automated regression fixture, never a production default.
+        public bool UseMvpFixture => Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-mvp-fixture") >= 0 &&
+            (Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-smoke") >= 0 || Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-session-tests") >= 0);
         public HotelSimulation Simulation { get; private set; }
         public HotelState State { get; private set; }
         public NetworkManager Manager { get; private set; }
@@ -28,7 +31,8 @@ namespace WorstHotel
         public string Status = "";
         public string LastSaved = "";
         public bool SteamMode { get; private set; }
-        public bool PlaytestSlot => Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-playtest") >= 0;
+        public bool DangerPlaytestSlot => Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-danger-playtest") >= 0;
+        public bool PlaytestSlot => DangerPlaytestSlot || Array.IndexOf(Environment.GetCommandLineArgs(), "-whe-playtest") >= 0;
         int operation;
         public Action<string> Feedback;
         float broadcastAt, startedAt, saveAt;
@@ -39,11 +43,13 @@ namespace WorstHotel
         long sequence;
         bool ownsHotel;
         readonly HashSet<ulong> approvedClients = new HashSet<ulong>();
-        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0 && Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-soak")>=0
+        public string SavePath => Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0 && Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-danger-checkpoint")>=0
+            ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","danger-restart-checkpoint.json"))
+            : Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0 && Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-soak")>=0
             ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","mvp-soak-checkpoint.json"))
             : Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-smoke")>=0 || Array.IndexOf(Environment.GetCommandLineArgs(),"-whe-session-tests")>=0
             ? System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath,"..","..","..","TestResults","smoke-save-"+System.Diagnostics.Process.GetCurrentProcess().Id+".json"))
-            : System.IO.Path.Combine(Application.persistentDataPath, PlaytestSlot ? "hotel-playtest-mvp.json" : "hotel-slot-1.json");
+            : System.IO.Path.Combine(Application.persistentDataPath, DangerPlaytestSlot ? "hotel-playtest-danger.json" : PlaytestSlot ? "hotel-playtest-mvp.json" : "hotel-slot-1.json");
 
         void Setup(string address, ushort port, string pass)
         {
@@ -93,7 +99,9 @@ namespace WorstHotel
                 if(current!=operation)return;
                 HotelState loaded = load ? HotelSaveStore.Load(SavePath) : null;
                 if(load && loaded==null) throw new InvalidOperationException("Сохранение не найдено.");
-                Simulation = UseLegacyFixture ? new HotelSimulation(loaded) : load ? HotelSimulation.ResumeForPlay(loaded) : HotelSimulation.CreateNewMvp();
+                Simulation = UseLegacyFixture ? new HotelSimulation(loaded) : UseMvpFixture ?
+                    (load ? HotelSimulation.ResumeForPlay(loaded) : HotelSimulation.CreateNewMvp()) :
+                    (load ? HotelSimulation.ResumeDangerForPlay(loaded) : HotelSimulation.CreateNewDanger());
                 State = Simulation.State;
                 Setup("127.0.0.1", port, pass);
                 if(!Manager.StartHost()) throw new InvalidOperationException("Не удалось открыть UDP-порт " + port);
@@ -132,7 +140,7 @@ namespace WorstHotel
                 if(!lobby.Success)throw new Exception(lobby.Error);
                 var loaded=load?HotelSaveStore.Load(SavePath):null;
                 if(load&&loaded==null)throw new Exception("Сохранение не найдено.");
-                Simulation=load?HotelSimulation.ResumeForPlay(loaded):HotelSimulation.CreateNewMvp();State=Simulation.State;
+                Simulation=load?HotelSimulation.ResumeDangerForPlay(loaded):HotelSimulation.CreateNewDanger();State=Simulation.State;
                 if(NetworkManager.Singleton!=null)await Task.Yield();
                 if(current!=operation)return;
                 Setup("127.0.0.1",7777,"");

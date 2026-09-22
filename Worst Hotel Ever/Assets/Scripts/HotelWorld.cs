@@ -51,6 +51,30 @@ namespace WorstHotel
         GameObject basicCoffee, upgradedCoffee;
         TextMesh coffeeStock;
         int previousCoffee = int.MinValue;
+        Transform dangerRoot;
+        TextMesh firstAidStock, alarmStatus;
+        readonly Dictionary<int, DangerControlVisual> dangerControls = new Dictionary<int, DangerControlVisual>();
+        readonly DangerVisual[] dangerVisuals = new DangerVisual[3];
+        readonly PersonVisual[] crewBodies = new PersonVisual[2];
+
+        sealed class DangerControlVisual
+        {
+            public GameObject root;
+            public TextMesh status;
+            public Renderer indicator;
+            public Transform lever;
+        }
+        sealed class DangerVisual
+        {
+            public Transform root, zone;
+            public GameObject source, electric, steam, fumes, energy;
+            public readonly GameObject[] emissions = new GameObject[3];
+            public Renderer plate;
+            public TextMesh status;
+            public readonly List<Renderer> boundary = new List<Renderer>();
+            public Collider[] colliders;
+            public int room;
+        }
 
         sealed class RoomVisual
         {
@@ -154,7 +178,8 @@ namespace WorstHotel
                         visual = CreatePerson(true, unchecked((int)player.id), "player_" + player.id, "Сотрудник");
                         players.Add(player.id, visual);
                     }
-                    SetActive(visual.root, player.id != localPlayerId);
+                    HotelCrewState crew = HotelDangerRules.Enabled(state) ? HotelDangerRules.Crew(state, player.id) : null;
+                    SetActive(visual.root, player.id != localPlayerId && (crew == null || crew.life == "healthy"));
                     visual.figure.Pose(player.position, player.yaw, player.pitch,
                         !string.IsNullOrEmpty(player.held), !string.IsNullOrEmpty(player.workTarget));
                 }
@@ -269,6 +294,201 @@ namespace WorstHotel
             removeItems.Clear();
             foreach (var entry in items) if (!seenItems.Contains(entry.Key)) removeItems.Add(entry.Key);
             foreach (string id in removeItems) { Retire(items[id].root); items.Remove(id); }
+            ApplyDanger(state);
+        }
+
+        // Built only on the first v3 snapshot; all changing geometry stays outside static batching.
+        // Three incident views, six fixed controls and two durable rescue bodies are reused forever.
+        void BuildDanger()
+        {
+            if (dangerRoot != null) return;
+            dangerRoot = Group(living, "Danger / emergency equipment and crew");
+            Transform aid = Group(dangerRoot, "First aid station", new Vector3(-6.5f, 1.1f, -3.3f));
+            Rounded(aid, "First aid cabinet", Vector3.zero, new Vector3(.65f, .66f, .24f), Ink.Cream, true);
+            Box(aid, "Medical green panel", new Vector3(0, .09f, -.132f), new Vector3(.31f, .31f, .018f), Ink.Teal);
+            Box(aid, "Medical cross horizontal", new Vector3(0, .09f, -.148f), new Vector3(.23f, .07f, .012f), Ink.White);
+            Box(aid, "Medical cross vertical", new Vector3(0, .09f, -.15f), new Vector3(.07f, .23f, .012f), Ink.White);
+            Cylinder(aid, "First aid pedestal", new Vector3(0, -.72f, .07f), new Vector3(.07f, .76f, .07f), Ink.Metal);
+            Text(aid, "ПЕРВАЯ ПОМОЩЬ", new Vector3(0, .47f, -.13f), .07f, Ink.Dark);
+            firstAidStock = Text(aid, "", new Vector3(0, -.2f, -.15f), .06f, Ink.Dark);
+            Target(aid.gameObject, "firstaid", "Аптечка — лечение / общий запас");
+
+            Transform alarm = Group(dangerRoot, "Evacuation alarm", new Vector3(1.45f, 1.25f, -6.4f));
+            Rounded(alarm, "Alarm backplate", Vector3.zero, new Vector3(.48f, .62f, .13f), Ink.Burgundy, true);
+            Rounded(alarm, "Alarm guarded button", new Vector3(0, -.07f, .105f), new Vector3(.29f, .2f, .11f), Ink.Red, true);
+            Text(alarm, "ЭВАКУАЦИЯ", new Vector3(0, .23f, .085f), .052f, Ink.White, 180);
+            Text(alarm, "УДЕРЖИВАТЬ E", new Vector3(0, -.26f, .085f), .042f, Ink.White, 180);
+            Cylinder(alarm, "Alarm post", new Vector3(0, -.78f, 0), new Vector3(.075f, .94f, .075f), Ink.Metal);
+            alarmStatus = Text(alarm, "СМЕНА БУДЕТ ПРЕРВАНА", new Vector3(0, .48f, .085f), .055f, Ink.Burgundy, 180);
+            Target(alarm.gameObject, "alarm", "Тревога — эвакуировать отель и прервать контракт");
+
+            for (int number = HotelLayout.FirstRoom; number <= HotelLayout.LastRoom; number++)
+            {
+                float sign = number % 2 == 1 ? -1 : 1;
+                Transform control = Group(dangerRoot, "Emergency control " + number, HotelDangerRules.Control(number));
+                control.localRotation = Quaternion.Euler(0, sign * 90, 0);
+                // Narrow physical plate leaves the straight 56 cm capsule route through the door clear.
+                Rounded(control, "Isolation control plate", Vector3.zero, new Vector3(.16f, .55f, .13f), Ink.Metal, true);
+                Transform lever = Rounded(control, "Latched isolation lever", new Vector3(0, -.06f, -.105f), new Vector3(.065f, .21f, .065f), Ink.Brass).transform;
+                Renderer indicator = Ball(control, "Isolation status lamp", new Vector3(0, .19f, -.084f), new Vector3(.065f, .065f, .025f), Ink.Teal).GetComponent<Renderer>();
+                Text(control, "№ " + number + " · ОТСЕЧКА", new Vector3(0, .43f, -.085f), .065f, Ink.Dark);
+                TextMesh status = Text(control, "", new Vector3(0, .32f, -.086f), .05f, Ink.Teal);
+                Target(control.gameObject, "isolate_" + number, "Изолировать аварию в номере " + number);
+                dangerControls.Add(number, new DangerControlVisual { root = control.gameObject, status = status, indicator = indicator, lever = lever });
+            }
+            for (int i = 0; i < dangerVisuals.Length; i++) dangerVisuals[i] = BuildDangerIncident(i);
+            for (int slot = 0; slot < crewBodies.Length; slot++)
+            {
+                PersonVisual body = CreatePerson(true, slot, "rescue_" + slot, "Сотрудник — помощь");
+                body.root.name = "Durable crew body " + slot;
+                body.root.transform.SetParent(dangerRoot, false);
+                body.root.GetComponent<CapsuleCollider>().enabled = false;
+                // Low rescue proxy can be stepped over; never leave the upright capsule blocking a hall.
+                BoxCollider hit = body.root.AddComponent<BoxCollider>();
+                hit.center = new Vector3(0, .13f, 0); hit.size = new Vector3(.82f, .2f, 2.06f);
+                body.figure.caption.localPosition = new Vector3(0, .83f, 0);
+                Target(body.root, "rescue_" + slot, "Сотрудник — помощь");
+                crewBodies[slot] = body; SetActive(body.root, false);
+            }
+        }
+
+        DangerVisual BuildDangerIncident(int index)
+        {
+            var v = new DangerVisual { root = Group(dangerRoot, "Incident view " + index) };
+            v.zone = Group(v.root, "Authoritative danger boundary");
+            const int segments = 48;
+            for (int i = 0; i < segments; i++)
+            {
+                float a = i * Mathf.PI * 2 / segments, b = (i + 1) * Mathf.PI * 2 / segments;
+                Vector3 from = new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a)), to = new Vector3(Mathf.Cos(b), 0, Mathf.Sin(b));
+                GameObject line = Box(v.zone, "Zone boundary " + i, (from + to) * .5f,
+                    new Vector3(.018f, .009f, Vector3.Distance(from, to)), Ink.Gold);
+                line.transform.localRotation = Quaternion.LookRotation(to - from);
+                line.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+                v.boundary.Add(line.GetComponent<Renderer>());
+            }
+            Transform source = Group(v.root, "Emergency source"); v.source = source.gameObject;
+            v.plate = Rounded(source, "Emergency service face", Vector3.zero, new Vector3(.43f, .38f, .16f), Ink.Burgundy, true).GetComponent<Renderer>();
+            v.status = Text(source, "", new Vector3(0, .38f, -.11f), .066f, Ink.Dark);
+            Text(source, "АВАРИЙНЫЙ УЗЕЛ", new Vector3(0, -.13f, -.091f), .038f, Ink.White);
+            Transform electric = Group(source, "Electric arc symbol"); v.electric = electric.gameObject;
+            Tube(electric, "Lightning upper", new Vector3(.07f, .15f, -.1f), new Vector3(-.055f, 0, -.1f), .05f, Ink.Gold);
+            Tube(electric, "Lightning cross", new Vector3(-.055f, 0, -.1f), new Vector3(.055f, 0, -.1f), .05f, Ink.Gold);
+            Tube(electric, "Lightning lower", new Vector3(.055f, 0, -.1f), new Vector3(-.07f, -.12f, -.1f), .05f, Ink.Gold);
+            Transform steam = Group(source, "Steam pressure symbol"); v.steam = steam.gameObject;
+            for (int i = -1; i <= 1; i++)
+            {
+                Tube(steam, "Hot pipe rising line", new Vector3(i * .105f, -.09f, -.1f), new Vector3(i * .105f - .025f, .025f, -.1f), .035f, Ink.White);
+                Tube(steam, "Hot pipe bend", new Vector3(i * .105f - .025f, .025f, -.1f), new Vector3(i * .105f, .14f, -.1f), .035f, Ink.White);
+            }
+            Transform fumes = Group(source, "Corrosive fumes symbol"); v.fumes = fumes.gameObject;
+            Rounded(fumes, "Corroded bin safety collar", new Vector3(0, -.1f, 0), new Vector3(.58f, .3f, .58f), Ink.Metal, true);
+            Ball(fumes, "Corrosive droplet", new Vector3(-.08f, .04f, -.11f), new Vector3(.085f, .16f, .045f), Ink.Leaf);
+            Tube(fumes, "Corroded surface", new Vector3(-.13f, -.075f, -.11f), new Vector3(.14f, -.075f, -.11f), .035f, Ink.White);
+            Ball(fumes, "Fume bubble", new Vector3(.095f, .095f, -.11f), new Vector3(.085f, .085f, .035f), Ink.Leaf);
+            Transform energy = Group(v.root, "Active source markers"); v.energy = energy.gameObject;
+            Transform arcs = Group(energy, "Steady electrical arcs"); v.emissions[0] = arcs.gameObject;
+            Transform vapour = Group(energy, "Hot pipe vapour"); v.emissions[1] = vapour.gameObject;
+            Transform cloud = Group(energy, "Corrosive bin wisps"); v.emissions[2] = cloud.gameObject;
+            for (int i = 0; i < 3; i++)
+            {
+                float x = (i - 1) * .17f;
+                Tube(arcs, "Arc rising stroke", new Vector3(x, .26f, 0), new Vector3(x - .07f, .48f, 0), .028f, Ink.Gold);
+                Tube(arcs, "Arc return stroke", new Vector3(x - .07f, .48f, 0), new Vector3(x + .03f, .68f, 0), .028f, Ink.Foam);
+                Ball(vapour, "Steam curl " + i, new Vector3(x, .43f + i * .13f, 0), new Vector3(.15f, .23f, .13f), Ink.Foam);
+                Ball(cloud, "Acid wisp " + i, new Vector3(x, .3f + i * .1f, .09f), new Vector3(.2f, .095f, .14f), Ink.Leaf);
+            }
+            v.colliders = source.GetComponentsInChildren<Collider>(true);
+            SetActive(v.root.gameObject, false);
+            return v;
+        }
+
+        static void DangerText(TextMesh text, string value) { if (text.text != value) text.text = value; }
+
+        void ApplyDanger(HotelState state)
+        {
+            bool enabled = HotelDangerRules.Enabled(state);
+            if (!enabled) { if (dangerRoot != null) SetActive(dangerRoot.gameObject, false); return; }
+            BuildDanger(); SetActive(dangerRoot.gameObject, true);
+            HotelDangerState danger = state.danger;
+            DangerText(firstAidStock, "АПТЕЧЕК: " + danger.medkits);
+            DangerText(alarmStatus, danger.outcome == "evacuated" ? "ЭВАКУАЦИЯ ПОДТВЕРЖДЕНА" :
+                danger.status == "failed" ? "СМЕНА ПРЕРВАНА" : "СМЕНА БУДЕТ ПРЕРВАНА");
+            foreach (var pair in dangerControls)
+            {
+                RoomState room = state.rooms.Find(r => r.number == pair.Key);
+                bool owned = room?.mvp != null && room.mvp.owned;
+                SetActive(pair.Value.root, owned);
+                if (!owned) continue;
+                HotelIncidentState incident = HotelDangerRules.Incident(state, pair.Key);
+                bool pending = incident != null && (incident.status == "warning" || incident.status == "active");
+                bool isolated = pending && incident.isolated;
+                string label = isolated ? "ИЗОЛИРОВАНО · РЕМОНТ" : pending ? "ИЗОЛИРОВАТЬ · E" : "ГОТОВНОСТЬ";
+                DangerText(pair.Value.status, label);
+                pair.Value.indicator.sharedMaterial = Mat(isolated ? Ink.Teal : pending ? Ink.Gold : Ink.Green);
+                pair.Value.lever.localRotation = Quaternion.Euler(0, 0, isolated ? 60 : 0);
+            }
+            for (int i = 0; i < dangerVisuals.Length; i++)
+            {
+                DangerVisual v = dangerVisuals[i];
+                HotelIncidentState incident = i < danger.incidents.Count ? danger.incidents[i] : null;
+                RoomState room = incident == null ? null : state.rooms.Find(r => r.number == incident.room);
+                bool visible = incident != null && incident.status != "planned" && room?.mvp != null && room.mvp.owned;
+                SetActive(v.root.gameObject, visible);
+                if (!visible) continue;
+                Vector3 source = HotelDangerRules.Source(incident);
+                v.root.position = source;
+                v.zone.localPosition = new Vector3(0, .055f - source.y, 0);
+                float radius = HotelDangerRules.Radius(incident);
+                v.zone.localScale = new Vector3(radius, 1, radius);
+                bool resolved = incident.status == "resolved";
+                bool hot = HotelDangerRules.IsHot(incident);
+                SetActive(v.zone.gameObject, !resolved);
+                Ink ink = resolved ? Ink.Teal : incident.isolated ? Ink.Teal : !hot ? Ink.Gold :
+                    incident.kind == "electric" ? Ink.Red : incident.kind == "steam" ? Ink.Gold : Ink.Leaf;
+                for (int segment = 0; segment < v.boundary.Count; segment++)
+                {
+                    v.boundary[segment].sharedMaterial = Mat(ink);
+                    SetActive(v.boundary[segment].gameObject, hot || segment % 2 == 0);
+                }
+                // Front-mounted service plates remain raycastable instead of hiding inside old fixtures.
+                v.source.transform.localPosition = incident.kind == "steam" ? new Vector3(0, .22f, .5f) :
+                    incident.kind == "fumes" ? new Vector3(0, .38f, 0) : new Vector3(0, 0, .14f);
+                v.source.transform.localRotation = Quaternion.Euler(0, incident.kind == "electric" ? 0 : 180, 0);
+                v.plate.transform.localScale = incident.kind == "steam" ? new Vector3(1, .62f, .16f) : new Vector3(.43f, .38f, .16f);
+                SetActive(v.electric, incident.kind == "electric"); SetActive(v.steam, incident.kind == "steam"); SetActive(v.fumes, incident.kind == "fumes");
+                v.plate.sharedMaterial = Mat(incident.isolated || resolved ? Ink.Teal : Ink.Burgundy);
+                v.energy.transform.localPosition = v.source.transform.localPosition;
+                SetActive(v.emissions[0], incident.kind == "electric"); SetActive(v.emissions[1], incident.kind == "steam"); SetActive(v.emissions[2], incident.kind == "fumes");
+                SetActive(v.energy, hot); // Steady geometry, never a flashing light or screen effect.
+                foreach (Collider collider in v.colliders) collider.enabled = !resolved;
+                string instruction = resolved ? "УСТРАНЕНО" : incident.isolated ? "ИЗОЛИРОВАНО · " + (incident.kind == "fumes" ? "ШВАБРА" : "ЯЩИК") :
+                    incident.status == "warning" ? "ДО УГРОЗЫ: " + Mathf.CeilToInt(incident.warningRemaining) + " с" : "ОПАСНО · ОТСЕЧКА У ДВЕРИ";
+                DangerText(v.status, HotelDangerRules.KindName(incident.kind) + "\n" + instruction);
+                if (v.room != incident.room)
+                {
+                    Target(v.source, "hazard_" + incident.room, "Источник аварии — сначала изолируйте у двери");
+                    v.room = incident.room;
+                }
+            }
+            for (int slot = 0; slot < crewBodies.Length; slot++)
+            {
+                HotelCrewState crew = danger.crew.Find(c => c.slot == slot);
+                PersonVisual visual = crewBodies[slot];
+                bool visible = crew != null && crew.joined && (crew.life == "downed" || crew.life == "dead");
+                SetActive(visual.root, visible);
+                if (!visible) continue;
+                visual.figure.Prone(crew.position, crew.life == "dead");
+                string label = crew.life == "dead" ? "СОТРУДНИК ПОГИБ\nДО КОНЦА СМЕНЫ" :
+                    "ПОМОЩЬ · УДЕРЖИВАТЬ E\n" + Mathf.CeilToInt(crew.bleedout) + " с · 1 АПТЕЧКА";
+                DangerText(visual.caption, label);
+                visual.caption.color = ColorOf(crew.life == "dead" ? Ink.Dark : Ink.Burgundy);
+                if (visual.stage != crew.life)
+                {
+                    SetTargetLabel(visual.root, crew.life == "dead" ? "Сотрудник погиб — спасение уже невозможно" : "Спасти сотрудника — аптечка и свободные руки");
+                    visual.stage = crew.life;
+                }
+            }
         }
 
         void BuildShell()
@@ -847,6 +1067,11 @@ namespace WorstHotel
             SetActive(v.equipment["sink"].root, mvp);
             bool powerFault = mvp && state.mvp.utilities != null && state.mvp.utilities.powerFault;
             bool waterFault = mvp && state.mvp.utilities != null && state.mvp.utilities.waterFault;
+            if (HotelDangerRules.Enabled(state))
+            {
+                powerFault = !HotelDangerRules.PowerAvailable(state, room.number);
+                waterFault = !HotelDangerRules.WaterAvailable(state, room.number);
+            }
             bool equipmentFault = false, lampWorking = true;
             foreach (var pair in v.equipment)
             {
@@ -1566,7 +1791,7 @@ namespace WorstHotel
         internal bool employee;
         Vector3 desired;
         float desiredYaw, pitch, stride;
-        bool initialized, carrying, working;
+        bool initialized, carrying, working, prone, deceased;
         Camera facingCamera;
         // Waiting, request and frustration are presentation-only weights. They never alter DTOs,
         // navigation, the root capsule, or the existing walk cycle. No coroutine or clip is created.
@@ -1604,6 +1829,19 @@ namespace WorstHotel
             desired = position; pitch = Mathf.Clamp(lookPitch, -55, 55); carrying = carry; working = work;
         }
 
+        // Dedicated pooled rescue rig, never used to modify an ordinary guest/employee rig.
+        internal void Prone(Vector3 position, bool dead)
+        {
+            prone = true; deceased = dead; initialized = true;
+            desired = new Vector3(position.x, .01f, position.z);
+            transform.position = desired;
+            // Lie along the corridor; near room end walls lie parallel to that wall instead.
+            float rowZ = 5.5f + Mathf.Clamp(Mathf.RoundToInt((position.z - 5.5f) / 7), 0, 2) * 7;
+            desiredYaw = Mathf.Abs(position.x) >= 1.7f && position.z > 2 && Mathf.Abs(position.z - rowZ) > 2.1f ? 90 : 0;
+            transform.rotation = Quaternion.Euler(0, desiredYaw, 0);
+            Animate(0, 0);
+        }
+
         void LateUpdate()
         {
             Animate(Time.deltaTime, Time.time);
@@ -1623,6 +1861,17 @@ namespace WorstHotel
         internal void Animate(float deltaTime, float time)
         {
             if (!initialized) return;
+            if (prone)
+            {
+                body.localPosition = new Vector3(0, .24f + (deceased ? 0 : Mathf.Sin(time * 1.6f) * .004f), .88f);
+                body.localRotation = Quaternion.Euler(-90, 0, 0);
+                leftArm.localRotation = Quaternion.Euler(0, 0, -9);
+                rightArm.localRotation = Quaternion.Euler(0, 0, 9);
+                leftLeg.localRotation = Quaternion.identity; rightLeg.localRotation = Quaternion.identity;
+                head.localRotation = Quaternion.Euler(0, deceased ? 18 : 8, 0);
+                mouth.localRotation = Quaternion.identity;
+                return;
+            }
             float dt = Mathf.Clamp(deltaTime, 0, .1f);
             float blend = 1 - Mathf.Exp(-18 * dt);
             float distance = (desired - transform.position).magnitude;

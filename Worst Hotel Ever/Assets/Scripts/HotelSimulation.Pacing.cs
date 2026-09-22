@@ -21,6 +21,12 @@ namespace WorstHotel
 
             // Closing resolves records and stress, but cannot add more consequences.
             if (State.phase != "open") return;
+            if (HotelDangerRules.Enabled(State) && State.danger.status == "active" &&
+                (State.danger.incidents.Exists(h => h.status == "warning" || h.status == "active") || State.danger.crew.Exists(c => c.joined && c.life != "healthy")))
+            {
+                director.nextDecision = Math.Max(director.nextDecision, now + 35);
+                return;
+            }
             if (HotelMvpDirector.Guided(State))
             {
                 director.nextDecision = Math.Max(director.nextDecision, now + 45);

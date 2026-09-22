@@ -11,7 +11,7 @@ namespace WorstHotel
 
         public static bool IsGuided(HotelState state)
         {
-            return state != null && (state.contentVersion == 1 || state.contentVersion == 2) && state.guidedOpening && state.day == 1 && state.guidedStage < Released;
+            return state != null && state.contentVersion >= 1 && state.contentVersion <= 3 && state.guidedOpening && state.day == 1 && state.guidedStage < Released;
         }
         public static bool ClockHeld(HotelState state) { return IsGuided(state) && state.phase == "open"; }
 

@@ -6,7 +6,7 @@ $exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $started = Get-Date
 $logPath = Join-Path $resultsPath 'opening-player.log'
-$fixture = if ($Mvp) { '' } else { '-whe-legacy-fixture' }
+$fixture = if ($Mvp) { '-whe-mvp-fixture' } else { '-whe-legacy-fixture' }
 $arguments = "-whe-host -whe-port 17782 -whe-session-tests $fixture -whe-case opening -screen-width 640 -screen-height 480 -screen-fullscreen 0 -logFile `"$logPath`""
 $run = Start-Process -FilePath $exePath -ArgumentList $arguments -WindowStyle Hidden -PassThru
 try {

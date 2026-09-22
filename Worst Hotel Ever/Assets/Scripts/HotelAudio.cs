@@ -10,6 +10,10 @@ namespace WorstHotel
         readonly Dictionary<string,AudioClip> clips=new Dictionary<string,AudioClip>();
         readonly AudioSource[] leaks=new AudioSource[6];
         AudioSource effects, workSource;
+        AudioSource dangerEffects;
+        readonly AudioSource[] hazards=new AudioSource[3];
+        static readonly string[] DangerKinds={"injury","downed","revive","death","alarm","warning","critical","danger_electric","danger_steam","danger_fumes"};
+        float nextInjuryCue;
         string workKind="";
         public int CueCount {get;private set;}
         public int CompletionCount {get;private set;}
@@ -47,6 +51,15 @@ namespace WorstHotel
             if((cues&HotelCue.Complete)!=0){Play("complete");CompletionCount++;}
             else if((cues&HotelCue.Item)!=0)Play("item");
             string kind=HotelFeedback.WorkKind(confirmedWork);
+            bool danger=HotelDangerRules.Enabled(state);
+            if(!danger)ReleaseDangerAudio();
+            if(danger)
+            {
+                EnsureDangerAudio();
+                if(confirmedWork!=null&&confirmedWork.StartsWith("hazard_",StringComparison.Ordinal)&&
+                    int.TryParse(confirmedWork.Substring(7),out int number)&&HotelDangerRules.Incident(state,number)?.kind=="fumes")kind="mop";
+                ApplyDangerCues(cues);
+            }
             if(kind!=workKind)
             {
                 workSource.Stop();workKind=kind;
@@ -57,15 +70,79 @@ namespace WorstHotel
             {
                 var room=state.rooms.Find(r=>r.number==101+i);
                 bool active=ambient&&room!=null&&(room.mvp==null||room.mvp.owned)&&room.leak&&(state.mvp==null||!state.mvp.utilities.waterFault);
+                if(active&&danger)active=HotelDangerRules.WaterAvailable(state,room.number);
                 if(active&&!leaks[i].isPlaying)leaks[i].Play();
                 else if(!active&&leaks[i].isPlaying)leaks[i].Stop();
             }
+            for(int i=0;i<hazards.Length;i++)
+            {
+                AudioSource source=hazards[i];if(source==null)continue;
+                HotelIncidentState incident=danger&&i<state.danger.incidents.Count?state.danger.incidents[i]:null;
+                bool hot=danger&&ambient&&state.danger.status=="active"&&(state.phase=="open"||state.phase=="closing")&&HotelDangerRules.IsHot(incident);
+                if(!hot){if(source.isPlaying)source.Stop();continue;}
+                source.transform.position=HotelDangerRules.Source(incident);
+                AudioClip clip=clips["danger_"+incident.kind];
+                if(source.clip!=clip){source.Stop();source.clip=clip;}
+                if(!source.isPlaying)source.Play();
+            }
+            if(!danger&&dangerEffects!=null)dangerEffects.Stop();
+        }
+        void EnsureDangerAudio()
+        {
+            if(dangerEffects!=null)return;
+            // Classic starts with exactly the original nine clips/eight sources. Allocate only for v3.
+            foreach(string kind in DangerKinds)
+            {
+                float[] data=Samples(kind,kind.StartsWith("danger_",StringComparison.Ordinal)?1.2f:kind=="alarm"?.85f:.5f);
+                var clip=AudioClip.Create("WHE original "+kind,data.Length,1,22050,false);clip.SetData(data,0);clips.Add(kind,clip);
+            }
+            dangerEffects=Source("Confirmed emergency cues",false);dangerEffects.volume=.45f;
+            for(int i=0;i<hazards.Length;i++)
+            {
+                hazards[i]=Source("Incident ambience "+i,true);hazards[i].loop=true;
+                hazards[i].volume=.18f;hazards[i].maxDistance=5.5f;
+            }
+        }
+        void ReleaseDangerAudio()
+        {
+            if(dangerEffects==null)return;
+            dangerEffects.Stop();Release(dangerEffects.gameObject);dangerEffects=null;
+            for(int i=0;i<hazards.Length;i++)
+            {
+                if(hazards[i]!=null){hazards[i].Stop();Release(hazards[i].gameObject);hazards[i]=null;}
+            }
+            foreach(string kind in DangerKinds)
+                if(clips.TryGetValue(kind,out AudioClip clip)){Release(clip);clips.Remove(kind);}
+            nextInjuryCue=0;
+        }
+        static void Release(UnityEngine.Object value)
+        {
+            if(value==null)return;
+            if(value is GameObject node){node.SetActive(false);node.transform.SetParent(null);}
+            if(Application.isPlaying)Destroy(value);else DestroyImmediate(value);
+        }
+        void ApplyDangerCues(HotelCue cues)
+        {
+            // One foreground emergency voice: no stacked alarms, no success sound on a button press.
+            string kind=(cues&HotelCue.Alarm)!=0?"alarm":(cues&HotelCue.Death)!=0?"death":
+                (cues&HotelCue.Downed)!=0?"downed":(cues&HotelCue.Revived)!=0?"revive":
+                (cues&HotelCue.Critical)!=0?"critical":(cues&(HotelCue.DangerWarning|HotelCue.DangerActive))!=0?"warning":
+                (cues&HotelCue.Injury)!=0&&Time.unscaledTime>=nextInjuryCue?"injury":"";
+            if(kind=="")return;
+            if(kind=="injury")
+            {
+                nextInjuryCue=Time.unscaledTime+.85f;
+                if(dangerEffects.isPlaying)return; // Small continuous hits never interrupt a life-state cue.
+            }
+            dangerEffects.Stop();dangerEffects.clip=clips[kind];dangerEffects.Play();CueCount++;
         }
         public void Play(string kind){if(effects!=null&&clips.TryGetValue(kind,out var clip)){effects.PlayOneShot(clip);CueCount++;}}
         public void Silence()
         {
             if(effects!=null)effects.Stop();if(workSource!=null)workSource.Stop();workKind="";
             foreach(var source in leaks)if(source!=null)source.Stop();
+            if(dangerEffects!=null)dangerEffects.Stop();
+            foreach(var source in hazards)if(source!=null)source.Stop();
         }
         public static float[] Samples(string kind,float seconds)
         {
@@ -88,6 +165,16 @@ namespace WorstHotel
                     case "mop":value=smooth*.40f*(.4f+.6f*Mathf.Abs(Mathf.Sin(t*9)));break;
                     case "trash":value=noise*.09f+smooth*.22f;break;
                     case "leak":value=smooth*.3f+Mathf.Sin(t*(740+100*Mathf.Sin(t*18))*Mathf.PI*2)*Mathf.Pow(Mathf.Max(0,Mathf.Cos(t*24)),18)*.09f;break;
+                    case "injury":value=smooth*.18f+Mathf.Sin(t*110*Mathf.PI*2)*.13f;break;
+                    case "downed":value=Mathf.Sin(t*(330-160*phase)*Mathf.PI*2)*.14f+smooth*.045f;break;
+                    case "revive":value=(Mathf.Sin(t*440*Mathf.PI*2)+Mathf.Sin(t*550*Mathf.PI*2)*.4f)*.12f;break;
+                    case "death":value=Mathf.Sin(t*130*Mathf.PI*2)*.13f+Mathf.Sin(t*195*Mathf.PI*2)*.035f;break;
+                    case "alarm":value=Mathf.Sin(t*440*Mathf.PI*2)*(.08f+.06f*Mathf.Sin(t*8));break;
+                    case "warning":value=(Mathf.Sin(t*520*Mathf.PI*2)+Mathf.Sin(t*650*Mathf.PI*2)*.3f)*.1f;break;
+                    case "critical":value=Mathf.Sin(t*260*Mathf.PI*2)*(.09f+.04f*Mathf.Sin(t*12));break;
+                    case "danger_electric":value=Mathf.Sin(t*120*Mathf.PI*2)*.04f+smooth*.08f;break;
+                    case "danger_steam":value=smooth*.20f+noise*.018f;break;
+                    case "danger_fumes":value=smooth*.12f+Mathf.Sin(t*85*Mathf.PI*2)*.025f;break;
                     default:value=smooth*.25f;break;
                 }
                 data[i]=Mathf.Clamp(value*envelope,-.8f,.8f);
@@ -98,9 +185,10 @@ namespace WorstHotel
         void OnDestroy()
         {
             Silence();
-            if(effects!=null)Destroy(effects.gameObject);if(workSource!=null)Destroy(workSource.gameObject);
-            foreach(var source in leaks)if(source!=null)Destroy(source.gameObject);
-            foreach(var clip in clips.Values)if(clip!=null)Destroy(clip);clips.Clear();
+            ReleaseDangerAudio();
+            if(effects!=null)Release(effects.gameObject);if(workSource!=null)Release(workSource.gameObject);
+            foreach(var source in leaks)if(source!=null)Release(source.gameObject);
+            foreach(var clip in clips.Values)if(clip!=null)Release(clip);clips.Clear();
         }
     }
 }

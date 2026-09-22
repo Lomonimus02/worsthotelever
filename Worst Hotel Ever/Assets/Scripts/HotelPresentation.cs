@@ -59,6 +59,15 @@ namespace WorstHotel
         public static string FocusText(HotelState state, ulong playerId, string targetId, string fallback)
         {
             if (state == null || string.IsNullOrEmpty(targetId)) return fallback;
+            if (HotelDangerRules.Enabled(state) && HotelDangerRules.IsWorkTarget(targetId))
+            {
+                string reason = HotelDangerRules.WorkError(state, playerId, targetId);
+                string name = DangerTargetName(state, targetId);
+                if (reason != "") return name + " · " + reason;
+                return "Удерживайте E: " + name + " · " + Mathf.CeilToInt(HotelDangerRules.WorkSeconds(state, targetId)) + " с" +
+                    (targetId == "alarm" ? "\nЭвакуация прекращает смену: контракт провален, премии нет, восстановление −" + state.danger.penalty + " ₽." :
+                    targetId == "firstaid" || targetId.StartsWith("rescue_", StringComparison.Ordinal) || targetId.StartsWith("recover_", StringComparison.Ordinal) ? " · расход: 1 аптечка" : "");
+            }
             PlayerState player = state.players.Find(p => p.id == playerId);
             ItemState held = state.items.Find(i => !i.consumed && i.id == player?.held);
             ItemState item = state.items.Find(i => !i.consumed && i.id == targetId);
@@ -141,6 +150,8 @@ namespace WorstHotel
         {
             position = Vector3.zero;
             if (state == null || string.IsNullOrEmpty(targetId)) return false;
+            if (HotelDangerRules.Enabled(state) && HotelDangerRules.IsWorkTarget(targetId))
+                return HotelDangerRules.TryTarget(state, targetId, out position);
             var item = state.items.Find(i => i.id == targetId && !i.consumed);
             if (item != null) { position = item.position; return true; }
             if (targetId.StartsWith("guest_", StringComparison.Ordinal) && int.TryParse(targetId.Substring(6), out int id))
@@ -248,6 +259,7 @@ namespace WorstHotel
         public static string StationReason(HotelState state, ulong playerId, bool host, string station, bool hostOnly, bool preparationOnly)
         {
             if (hostOnly && !host) return "Это действие выполняет хозяин отеля.";
+            if (HotelDangerRules.Enabled(state) && !HotelDangerRules.CanAct(state, playerId)) return "Сейчас вы не можете работать. Помощь и состояние команды — во вкладке «Операции».";
             if (preparationOnly && state.phase != "preparation") return "Доступно во время подготовки к смене.";
             PlayerState player = state.players.Find(p => p.id == playerId);
             Vector3 delta = player == null ? Vector3.one * 100 : player.position - HotelLayout.Target(station); delta.y = 0;
@@ -256,9 +268,103 @@ namespace WorstHotel
         public static List<string> MvpTasks(HotelState state)
         {
             var result = new List<string>();
+            if (HotelDangerRules.Enabled(state) && !DangerTerminal(state))
+            {
+                foreach (var crew in state.danger.crew)
+                    if (crew.joined && crew.life == "downed") result.Add("Спасти сотрудника " + (crew.slot + 1) + " · осталось " + Seconds(crew.bleedout) + " · свободные руки + E + аптечка");
+                foreach (var incident in state.danger.incidents)
+                    if (incident.status == "warning" || incident.status == "active")
+                        result.Add(DangerIncidentLabel(incident) + (incident.isolated ? " · устраните источник" : " · отсекатель у двери, свободные руки + E"));
+            }
             foreach (string line in HotelHospitalityRules.Tasks(state)) if (!result.Contains(line)) result.Add(line);
             foreach (string line in HotelOperationsRules.Tasks(state)) if (!result.Contains(line)) result.Add(line);
             return result;
+        }
+        public static bool DangerTerminal(HotelState state)
+        {
+            return HotelDangerRules.Enabled(state) && state.phase == "summary" && state.danger.settled;
+        }
+        // Local intent guard only. Success, health, resources and work duration remain authoritative.
+        public static bool DangerWorkIntentAllowed(HotelState state, ulong id, string target)
+        {
+            if (!HotelDangerRules.Enabled(state)) return true;
+            if (DangerTerminal(state)) return false;
+            if (HotelDangerRules.CanAct(state, id)) return true;
+            var crew = HotelDangerRules.Crew(state, id);
+            return crew?.life == "downed" && state.danger.status == "active" &&
+                (state.phase == "open" || state.phase == "closing") && target == "recover_" + crew.slot;
+        }
+        public static string DangerNextDayReason(HotelState state, bool host)
+        {
+            if (!host) return "Следующий день начинает хост. Его смерть не блокирует подготовку.";
+            return DangerTerminal(state) ? "" : "Дождитесь итогов смены.";
+        }
+        public static string Seconds(float seconds) { return Mathf.CeilToInt(Mathf.Max(0, seconds)) + " с"; }
+        public static string DangerCrewLabel(HotelState state, HotelCrewState crew, ulong localId)
+        {
+            bool self = crew != null && crew.slot == HotelDangerRules.Slot(localId);
+            string who = self ? "Вы" : "Коллега";
+            if (crew == null || !crew.joined) return who + " · не участвует";
+            if (crew.life == "dead") return who + " · ПОГИБ";
+            if (crew.life == "downed") return who + " · без сознания · " + Seconds(crew.bleedout);
+            return who + " · здоровье " + Mathf.CeilToInt(crew.health) + "/100";
+        }
+        public static string DangerOutcomeName(string outcome)
+        {
+            switch (outcome)
+            {
+                case "completed": return "КОНТРАКТ ВЫПОЛНЕН";
+                case "evacuated": return "ЭВАКУАЦИЯ · КОНТРАКТ ПРОВАЛЕН";
+                case "wipe": return "КОМАНДА ПОТЕРЯНА · ПРОВАЛ";
+                case "collapse": return "ОТЕЛЬ НЕБЕЗОПАСЕН · ПРОВАЛ";
+                case "incomplete": return "ЦЕЛИ НЕ ВЫПОЛНЕНЫ · ПРОВАЛ";
+                case "relief": return "ПЕРЕДЫШКА ЗАВЕРШЕНА";
+                default: return "ИТОГИ КОНТРАКТА";
+            }
+        }
+        public static string DangerModeTerms(string mode)
+        {
+            if (mode == "relief") return "Обычное обслуживание без опасных аварий, контрактной премии и зачёта победы.";
+            return "Сервис: " + HotelDangerRules.ServiceGoal(mode) + " · аварии: " + HotelDangerRules.IncidentGoal(mode) +
+                " · минимум " + Seconds(HotelDangerRules.MinimumSeconds(mode)) + ". Одновременно угроз: " + HotelDangerRules.SimultaneousIncidents(mode) +
+                ".\nПремия +" + HotelDangerRules.Reward(mode) + " ₽ · восстановление при провале −" + HotelDangerRules.Penalty(mode) + " ₽.";
+        }
+        public static string DangerIncidentLabel(HotelIncidentState incident)
+        {
+            string status = incident.status == "resolved" ? "устранено" : incident.isolated ? "изолировано" :
+                incident.status == "warning" ? "урон через " + Seconds(incident.warningRemaining) : incident.status == "active" ? "ОПАСНАЯ ЗОНА" : "в плане";
+            return "№ " + incident.room + " · " + HotelDangerRules.KindName(incident.kind) + " · " + status;
+        }
+        public static string DangerTargetName(HotelState state, string target)
+        {
+            if (string.IsNullOrEmpty(target)) return "";
+            if (target == "firstaid") return "Лечение у аптечной станции";
+            if (target == "alarm") return "Тревога / эвакуация";
+            string[] parts = target.Split('_');
+            if (parts.Length != 2 || !int.TryParse(parts[1], out int number)) return target;
+            if (parts[0] == "recover") return "Аварийная самопомощь";
+            if (parts[0] == "rescue") return "Спасение сотрудника " + (number + 1);
+            if (parts[0] == "isolate") return "Отсекатель / вентиляция · № " + number;
+            if (parts[0] == "hazard")
+            {
+                var incident = HotelDangerRules.Incident(state, number);
+                return "Устранить источник · № " + number + (incident == null ? "" : " · " + HotelDangerRules.KindName(incident.kind));
+            }
+            return target;
+        }
+        public static string DangerPriorityTarget(HotelState state, ulong id)
+        {
+            if (!HotelDangerRules.Enabled(state) || DangerTerminal(state) || !HotelDangerRules.CanAct(state, id)) return "";
+            if (state.danger.status == "active" && state.danger.safety <= 0) return "alarm";
+            foreach (var crew in state.danger.crew)
+                if (crew.joined && crew.slot != HotelDangerRules.Slot(id) && crew.life == "downed") return "rescue_" + crew.slot;
+            foreach (string status in new[] { "active", "warning" })
+                foreach (var incident in state.danger.incidents)
+                    if (incident.status == status && !incident.isolated) return "isolate_" + incident.room;
+            foreach (var incident in state.danger.incidents)
+                if (incident.isolated && (incident.status == "active" || incident.status == "warning")) return "hazard_" + incident.room;
+            var local = HotelDangerRules.Crew(state, id);
+            return local?.life == "healthy" && local.health < 100 && state.danger.medkits > 0 ? "firstaid" : "";
         }
         static string MvpFocusText(HotelState state, ulong playerId, string target, ItemState held)
         {

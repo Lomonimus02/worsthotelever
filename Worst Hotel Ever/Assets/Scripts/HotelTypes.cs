@@ -56,6 +56,7 @@ namespace WorstHotel
         public List<string> ledger = new List<string>();
         public string notice = "Подготовьте отель и откройте смену на стойке.";
         public MvpHotelState mvp;
+        public HotelDangerState danger;
     }
     [Serializable] public class HotelCommand
     {

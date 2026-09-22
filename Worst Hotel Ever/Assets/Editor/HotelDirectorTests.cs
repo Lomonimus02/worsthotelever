@@ -396,7 +396,7 @@ namespace WorstHotel
                 sim = new HotelSimulation(loaded); float time = sim.State.time; Advance(sim, 1);
                 Assert(sim.State.time > time && !HotelDirector.ClockHeld(sim.State), "Old clock stopped");
                 HotelSaveStore.Save(sim.State, path); string valid = File.ReadAllText(path);
-                loaded.contentVersion = 3; WriteSnapshot(path, JsonUtility.ToJson(loaded)); string future = File.ReadAllText(path);
+                loaded.contentVersion = 4; WriteSnapshot(path, JsonUtility.ToJson(loaded)); string future = File.ReadAllText(path);
                 Throws<NotSupportedException>(() => HotelSaveStore.Load(path));
                 loaded.contentVersion = 0;
                 Throws<NotSupportedException>(() => HotelSaveStore.Save(loaded, path));

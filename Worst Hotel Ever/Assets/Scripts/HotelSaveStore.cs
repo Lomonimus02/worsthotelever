@@ -9,7 +9,7 @@ namespace WorstHotel
 {
     public static class HotelSaveStore
     {
-        public const int LatestSupportedVersion = 2;
+        public const int LatestSupportedVersion = 3;
         private const long MaxFileBytes = 8 * 1024 * 1024;
         private static readonly object Gate = new object();
 
@@ -27,7 +27,12 @@ namespace WorstHotel
         {
             public int version;
             public int contentVersion;
+            public MvpVersionHeader mvp;
+            public DangerVersionHeader danger;
         }
+
+        [Serializable] private sealed class MvpVersionHeader { public int schema, rngVersion; }
+        [Serializable] private sealed class DangerVersionHeader { public int schema; }
 
         // Explicit new-game action only; ordinary Save deliberately cannot replace another world.
         public static void StartNew(HotelState state, string path)
@@ -189,13 +194,13 @@ namespace WorstHotel
                         stream.Flush(true);
                     }
                     Read(temporary); // Validate the actual bytes before touching a good checkpoint.
-                    if (state.version == 2 && (checkpoint != null ? checkpoint.version == 1 : File.Exists(fullPath) || File.Exists(backup)))
+                    if (state.version > 1 && (checkpoint != null ? checkpoint.version < state.version : File.Exists(fullPath) || File.Exists(backup)))
                     {
                         // Promotion preserves BOTH original files, including a corrupt primary
                         // recovered via backup. Copies are durable and verified before replacement;
                         // never move originals or route migration through the new-world action.
                         string token = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'") + "-" + Guid.NewGuid().ToString("N");
-                        string archive = Path.Combine(directory, "archive", Path.GetFileName(fullPath) + "-v1-" + token);
+                        string archive = Path.Combine(directory, "archive", Path.GetFileName(fullPath) + "-v" + (checkpoint == null ? "unknown" : checkpoint.version.ToString()) + "-" + token);
                         Directory.CreateDirectory(archive);
                         if (File.Exists(fullPath)) CopyDurable(fullPath, Path.Combine(archive, "primary.json"));
                         if (File.Exists(backup)) CopyDurable(backup, Path.Combine(archive, "backup.json"));
@@ -271,13 +276,17 @@ namespace WorstHotel
                     VersionHeader header = JsonUtility.FromJson<VersionHeader>(envelope.payload);
                     if (header != null && (header.version > LatestSupportedVersion || header.contentVersion > LatestSupportedVersion))
                         throw new NotSupportedException("Данные отеля созданы более новой версией игры.");
+                    if (header != null && ((header.version >= 2 && header.mvp != null && header.mvp.schema > 2) ||
+                        (header.mvp != null && header.mvp.rngVersion > 1) ||
+                        (header.version == 3 && header.danger != null && header.danger.schema > 1)))
+                        throw new NotSupportedException("Вложенная схема отеля создана более новой версией игры.");
                     state = JsonUtility.FromJson<HotelState>(envelope.payload);
                 }
                 catch (ArgumentException error) { throw new InvalidDataException("Неверные данные отеля.", error); }
                 RejectFutureVersions(state);
             }
             if (envelope == null || envelope.format != "WorstHotelSave") throw new InvalidDataException("Неизвестный формат сохранения.");
-            if ((envelope.version != 1 && envelope.version != 2) || string.IsNullOrEmpty(envelope.payload) || string.IsNullOrEmpty(envelope.checksum))
+            if ((envelope.version < 1 || envelope.version > LatestSupportedVersion) || string.IsNullOrEmpty(envelope.payload) || string.IsNullOrEmpty(envelope.checksum))
                 throw new InvalidDataException("Неподдерживаемая или неполная схема сохранения.");
             if (!string.Equals(envelope.checksum, Hash(envelope.payload), StringComparison.Ordinal)) throw new InvalidDataException("Контрольная сумма сохранения не совпадает.");
             Require(state != null && state.version == envelope.version, "Версии конверта и состояния отеля не совпадают.");
@@ -297,6 +306,8 @@ namespace WorstHotel
 
         private static void ReleasePlayers(HotelState state)
         {
+            // Only connections, hands and heartbeat leases are disposable. Durable danger crew
+            // (including disconnected bodies, injuries and death) is deliberately untouched.
             foreach (ItemState item in state.items)
             {
                 if (item.holder >= 0)
@@ -314,7 +325,7 @@ namespace WorstHotel
             foreach (ItemState item in state.items)
                 if (!item.consumed && item.placedRoom == -1 && cart != null)
                 {
-                    item.position = state.version == 2
+                    item.position = state.version >= 2
                         ? cart.position + new Vector3(slot % 2 == 0 ? -.23f : .23f, .25f, slot / 2 * .35f)
                         : cart.position + new Vector3(slot == 0 ? -.23f : .23f, .25f, 0);
                     slot++;
@@ -325,6 +336,8 @@ namespace WorstHotel
         // The explicit schema, not nullable DTO allocation, distinguishes an old hotel.
         internal static void NormalizeLegacy(HotelState state)
         {
+            if (state != null && ((state.version == 1 && state.contentVersion >= 0 && state.contentVersion <= 1) ||
+                (state.version == 2 && state.contentVersion == 2))) state.danger = null;
             if (state == null || state.version != 1 || state.contentVersion < 0 || state.contentVersion > 1) return;
             state.mvp = null;
             if (state.rooms != null) foreach (RoomState room in state.rooms) if (room != null) room.mvp = null;
@@ -339,7 +352,7 @@ namespace WorstHotel
             switch (state.version)
             {
                 case 1: ValidateLegacy(state); return;
-                case 2: HotelMvpValidation.Validate(state); return;
+                case 2: case 3: HotelMvpValidation.Validate(state); return;
                 default: throw new InvalidDataException("Неподдерживаемая версия состояния отеля.");
             }
         }
@@ -349,7 +362,8 @@ namespace WorstHotel
             if (state == null) return;
             if (state.version > LatestSupportedVersion) throw new NotSupportedException("Состояние отеля создано более новой версией игры.");
             if (state.contentVersion > LatestSupportedVersion) throw new NotSupportedException("Содержимое отеля создано более новой версией игры.");
-            if (state.version == 2 && state.mvp != null && state.mvp.schema > 2) throw new NotSupportedException("Содержимое MVP создано более новой версией игры.");
+            if (state.version >= 2 && state.mvp != null && state.mvp.schema > 2) throw new NotSupportedException("Содержимое MVP создано более новой версией игры.");
+            if (state.version == 3 && state.danger != null && state.danger.schema > 1) throw new NotSupportedException("Опасный контракт создан более новой версией игры.");
             if (state.mvp != null && state.mvp.rngVersion > 1) throw new NotSupportedException("Генератор событий создан более новой версией игры.");
             if (state.guests != null)
                 foreach (GuestState guest in state.guests)

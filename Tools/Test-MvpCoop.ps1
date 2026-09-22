@@ -9,8 +9,8 @@ $label = if ($Impaired) { 'mvp-delayed' } else { 'mvp-coop' }
 $hostLog = Join-Path $resultsPath "$label-host-player.log"
 $clientLog = Join-Path $resultsPath "$label-client-player.log"
 $clientPort = if ($Impaired) { 17785 } else { 17784 }
-$hostArgs = "-whe-host -whe-smoke -whe-port 17784 -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$hostLog`""
-$clientArgs = "-whe-client 127.0.0.1 -whe-smoke -whe-port $clientPort -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$clientLog`""
+$hostArgs = "-whe-host -whe-smoke -whe-mvp-fixture -whe-port 17784 -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$hostLog`""
+$clientArgs = "-whe-client 127.0.0.1 -whe-smoke -whe-mvp-fixture -whe-port $clientPort -screen-width 1280 -screen-height 800 -screen-fullscreen 0 -logFile `"$clientLog`""
 $testStarted = Get-Date
 $runs = @()
 try {

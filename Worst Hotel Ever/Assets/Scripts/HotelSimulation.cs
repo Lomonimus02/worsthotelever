@@ -47,13 +47,16 @@ namespace WorstHotel
         {
             if (id > long.MaxValue || Player(id) != null || State.players.Count >= 2) return;
             Vector3 spawn = HotelLayout.Spawn + new Vector3(id == 0 ? -.5f : .5f, 0, 0);
-            State.players.Add(new PlayerState { id = id, position = spawn });
+            var player = new PlayerState { id = id, position = spawn };
+            State.players.Add(player);
+            if (HotelDangerRules.Enabled(State)) DangerJoined(player);
         }
 
         public void Leave(ulong id)
         {
             PlayerState player = Player(id);
             if (player == null) return;
+            if (HotelDangerRules.Enabled(State)) DangerLeaving(player);
             foreach (ItemState item in State.items)
             {
                 if (item.holder != (long)id) continue;
@@ -71,6 +74,7 @@ namespace WorstHotel
             if (player == null) return "Игрок не подключён к отелю.";
             if (command == null || string.IsNullOrEmpty(command.action)) return "Пустая команда.";
             string target = command.target ?? "";
+            if (HotelDangerRules.Enabled(State) && TryDangerCommand(player, command, out string dangerError)) return dangerError;
             if (State.mvp != null && TryMvpCommand(player, command, out string mvpError)) return mvpError;
             switch (command.action)
             {
@@ -80,6 +84,7 @@ namespace WorstHotel
                     player.position = new Vector3(command.position.x, .1f, command.position.z);
                     player.yaw = command.yaw % 360f;
                     player.pitch = Mathf.Clamp(command.pitch, -89, 89);
+                    if (HotelDangerRules.Enabled(State)) DangerPose(player);
                     ItemState carried = Held(player);
                     if (carried != null) carried.position = player.position + Vector3.up * .8f;
                     if (!string.IsNullOrEmpty(player.workTarget) && WorkError(player, player.workTarget) != "") Cancel(player);
@@ -464,6 +469,7 @@ namespace WorstHotel
             State.notice = "День " + State.day + ". Запасы пополнены; грязь и поломки остались. Подготовьтесь и откройте отель.";
             HotelOnboarding.Record(State, HotelTutorialSkill.NextDay);
             if (promoteAfterShift) TryPromoteLegacy();
+            if (dangerPromotionPending) TryPromoteDanger();
             return "";
         }
 
@@ -646,6 +652,11 @@ namespace WorstHotel
 
         private string WorkError(PlayerState player, string target)
         {
+            if (HotelDangerRules.Enabled(State))
+            {
+                if (HotelDangerRules.IsWorkTarget(target)) return HotelDangerRules.WorkError(State, player.id, target);
+                if (!HotelDangerRules.CanAct(State, player.id)) return "Сотрудник не может работать: нужна помощь.";
+            }
             if (State.mvp != null) return OperationsWorkError(player, target);
             if (!TryRoomTarget(target, out string kind, out RoomState room)) return "Здесь нет работы.";
             if (!Near(player, HotelLayout.Target(target))) return "Подойдите ближе и удерживайте E.";
@@ -673,6 +684,7 @@ namespace WorstHotel
 
         private float WorkDuration(string target)
         {
+            if (HotelDangerRules.Enabled(State) && HotelDangerRules.IsWorkTarget(target)) return HotelDangerRules.WorkSeconds(State, target);
             if (State.mvp != null) return OperationsWorkDuration(target);
             TryRoomTarget(target, out string kind, out RoomState room);
             if (kind == "sink") return 5;
@@ -683,6 +695,7 @@ namespace WorstHotel
 
         private void CompleteWork(PlayerState player)
         {
+            if (HotelDangerRules.Enabled(State) && HotelDangerRules.IsWorkTarget(player.workTarget)) { DangerCompleteWork(player); return; }
             if (State.mvp != null) { OperationsCompleteWork(player); return; }
             TryRoomTarget(player.workTarget, out string kind, out RoomState room);
             if (kind == "bed")
