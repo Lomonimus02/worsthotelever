@@ -8,6 +8,7 @@
 - [План мрачного текстурного стиля](docs/GRIM_TEXTURES_PLAN.md)
 - [Исходники, prompts и происхождение текстур](docs/art/grim-textures-v1.json)
 - [QA мрачного стиля и границы проверки](docs/reports/qa-grim-alpha1.md)
+- [Windows-сборка 1.3.0 и проверка архива](docs/reports/release-grim-alpha1.md)
 - [План планшета и минимального HUD](docs/TABLET_UI_PLAN.md)
 - [Проверки планшета и ограничения](docs/reports/qa-tablet-alpha1.md)
 - [Windows-сборка 1.2.0 и проверка архива](docs/reports/release-tablet-alpha1.md)
