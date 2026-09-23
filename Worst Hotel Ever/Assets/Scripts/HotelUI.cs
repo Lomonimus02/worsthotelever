@@ -424,7 +424,7 @@ namespace WorstHotel
                 if(MvpButton("Признать провал…",true,true))Game.OpenPanel("abandon-confirm");
             }
             var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId);
-            if(hint!=null&&HotelDangerRules.CanAct(S,Game.Session.LocalId)) {
+            if(hint!=null&&HotelHudModel.ShowLesson(S,Game.Session.LocalId)) {
                 MvpSection("СЛЕДУЮЩИЙ ШАГ · "+hint.title);
                 if(Fold("current-lesson","Как это сделать"))JournalHintBody(hint.body);
             }
@@ -659,7 +659,9 @@ namespace WorstHotel
             MvpSection("УПРАВЛЕНИЕ");
             MvpText("WASD — ходить   ·   Shift — быстрее   ·   E — взять / работать\nQ — положить   ·   F / средняя кнопка мыши — отметить для коллеги\nTAB — журнал   ·   ESC — меню. Мир не останавливается.");
             var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId);
-            if(hint!=null){MvpSection("СЕЙЧАС: "+hint.title);JournalHintBody(hint.body);}
+            var alert=HotelHudModel.Alert(S,Game.Session.LocalId,true);
+            if(alert.kind!=""){MvpSection("СЕЙЧАС: "+alert.title);MvpText(alert.detail);}
+            else if(hint!=null&&HotelHudModel.ShowLesson(S,Game.Session.LocalId)){MvpSection("СЕЙЧАС: "+hint.title);JournalHintBody(hint.body);}
             if(Danger&&Fold("danger-help","Опасности, спасение и провал смены"))DangerHelp();
             if(Fold("service-help","Как обслуживать отель")) {
             MvpText("Подготовка без таймера: бельё, полотенца, кофе, ремонт, прогноз и цены. Открытие и итоги — у стойки, покупки — у доски. Обычная смена длится "+Mathf.RoundToInt(S.dayLength/60)+" минут.");

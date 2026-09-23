@@ -87,9 +87,12 @@ namespace WorstHotel
                 default:return false;
             }
         }
+        public static bool ShowLesson(HotelState state,ulong id) => HotelDangerRules.CanAct(state,id) &&
+            !HotelPresentation.DangerTerminal(state) && Alert(state,id,true).kind=="";
         public static bool ShowToast(HotelState state,string text)
         {
             if(string.IsNullOrEmpty(text))return false;
+            if(HotelPresentation.DangerTerminal(state)&&text==state.danger.reason)return false;
             if(state==null||state.phase!="preparation")return true;
             return text!="День "+state.day+": проверьте прогноз, цены и номера на доске. Подготовка без таймера." &&
                 text!="День "+state.day+". Грязь, поломки и ночующие гости сохранены. Запасы пополнены, прогноз готов." &&

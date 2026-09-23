@@ -6,6 +6,7 @@
 
 - [Как играть в опасные смены](README_DANGER.md)
 - [План переделки интерфейса](docs/UI_REDESIGN_PLAN.md)
+- [Проверка нового интерфейса](docs/reports/qa-ui-alpha1.md)
 - [План развития геймплея](docs/RELEASE_GAMEPLAY_PLAN.md)
 - [Плейтест опасностей двумя людьми](docs/DANGER_PLAYTEST_RU.md)
 - [Проверенная сборка 1.1.0-danger-alpha1](docs/reports/release-danger-alpha1.md)

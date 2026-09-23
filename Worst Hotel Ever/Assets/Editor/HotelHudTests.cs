@@ -22,6 +22,7 @@ namespace WorstHotel
             Run(passed, "HUD queries leave every authoritative snapshot unchanged", ReadOnly);
             Run(passed, "HUD preserves actionable notices while hiding redundant preparation briefs", Notices);
             Run(passed, "Journal TAB closes all pages without treating pause or settings as pages", JournalPages);
+            Run(passed, "Urgent danger and terminal results suppress contradictory journal lessons", LessonPriority);
             return passed;
         }
 
@@ -229,6 +230,18 @@ namespace WorstHotel
                 HotelHudModel.FocusKey(alarm, "") == "!" && HotelHudModel.FocusKey(null, null) == "!", "Focus key implies the wrong input");
         }
 
+        static void LessonPriority()
+        {
+            var state=Fixture();
+            Require(HotelHudModel.ShowLesson(state,0),"Safe tutorial hidden");
+            state.phase="open";state.danger.status="active";state.danger.safety=0;
+            Require(!HotelHudModel.ShowLesson(state,0),"Critical journal still tells player to serve guests first");
+            state.danger.safety=100;Down(state,0);
+            Require(!HotelHudModel.ShowLesson(state,0),"Downed journal suggests walking");
+            state.phase="summary";state.danger.settled=true;state.danger.reason="Провал: команда эвакуировалась.";
+            Require(!HotelHudModel.ShowLesson(state,0)&&!HotelHudModel.ShowToast(state,state.danger.reason),"Terminal lesson or duplicate result toast remains");
+            Require(HotelHudModel.ShowToast(state,"Не удалось сохранить отель."),"Result suppresses an actual save error");
+        }
         static void Notices()
         {
             var state=Fixture();
