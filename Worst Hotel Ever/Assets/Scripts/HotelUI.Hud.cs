@@ -1,142 +1,139 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace WorstHotel
 {
     public sealed partial class HotelUI
     {
-        static readonly Rect AlertBounds=new Rect(403,25,634,92);
-        void HudCard(Rect r,Color? line=null)
+        public readonly HotelTeachingHints TeachingHints=new HotelTeachingHints();
+        public int HudElementCountForTest { get; private set; }
+        public bool TeachingHintDrawnForTest { get; private set; }
+        public bool TabletDrawnForTest { get; private set; }
+        public string AlertInTabletForTest { get; private set; }="";
+        public string SaveErrorInTabletForTest { get; private set; }="";
+        readonly List<string> tabletNotices=new List<string>();
+        string tipWorld="",lastTabletNotice="",lastFocus="";
+        bool teachingLoaded,welcomeShown;
+
+        void LateUpdate()
         {
-            Box(new Rect(r.x+2,r.y+3,r.width,r.height),new Color(0,0,0,.18f));
-            Box(r,new Color(.085f,.12f,.115f,.88f));
-            if(line.HasValue)Box(new Rect(r.x,r.y,3,r.height),line.Value);
+            if(Game?.Session==null)return;
+            if(!teachingLoaded) {
+                TeachingHints.Enabled=Game.Automated||PlayerPrefs.GetInt("localTeachingHints",1)==1;
+                teachingLoaded=true;
+            }
+            float now=Time.unscaledTime;
+            if(!Game.Playing) { TeachingHints.Tick(now,"","","",false);tipWorld="";return; }
+            if(tipWorld!=S.worldId) {
+                tipWorld=S.worldId;TeachingHints.Reset(now);welcomeShown=false;
+                tabletNotices.Clear();lastTabletNotice="";lastFocus="";
+            }
+            if(Game.InputActive&&!string.IsNullOrEmpty(Game.FocusLabel))lastFocus=Game.FocusLabel;
+            if(Game.Toast!=""&&Game.Toast!=lastTabletNotice) {
+                lastTabletNotice=Game.Toast;tabletNotices.Insert(0,Game.Toast);
+                if(tabletNotices.Count>12)tabletNotices.RemoveAt(12);
+            }
+            bool allowed=Game.InputActive&&HotelHudModel.ShowLesson(S,Game.Session.LocalId);
+            var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId,true);
+            string key=!welcomeShown?"welcome":hint?.title??"";
+            string heading=!welcomeShown?"НА СВЯЗИ · СЛУЖБА ПЕРСОНАЛА":hint?.title??"";
+            string body=!welcomeShown?"Tab — ваш рабочий планшет. Все дела и управление — там. E — взять или работать, Shift — бежать.":hint?.body??"";
+            TeachingHints.Tick(now,key,heading,body,allowed);
+            if(TeachingHints.CurrentKey=="welcome")welcomeShown=true;
+            if(Game.InputActive&&Keyboard.current?.hKey.wasPressedThisFrame==true)TeachingHints.Dismiss(now);
         }
         void HUD()
         {
             if(Game.Panel!="")return;
-            var alert=HotelHudModel.Alert(S,Game.Session.LocalId,false);
-            var local=Danger?HotelDangerRules.Crew(S,Game.Session.LocalId):null;
-            // No permanent top strip, empty-hands panel, FPS counter or field manual.
-            if(local==null||local.life=="healthy") {
-                Box(new Rect(718,448,4,4),paper);
-                HudCard(new Rect(1118,28,290,57));
-                Text(new Rect(1133,35,260,23),"ДЕНЬ "+S.day,small,gold);
-                Text(new Rect(1133,57,260,23),HotelHudModel.Clock(S),small);
-            }
-            if(local!=null) {
-                var colleague=S.danger.crew.Find(c=>c.joined&&c.slot!=local.slot);
-                float top=colleague==null?784:756;
-                HudCard(new Rect(32,top,222,867-top),local.life=="healthy"?brass:red);
-                Text(new Rect(47,top+10,190,25),local.life=="healthy"?"ЗДОРОВЬЕ  "+Mathf.CeilToInt(local.health):local.life=="downed"?"ВЫ РАНЕНЫ":"ВЫ ПОГИБЛИ",bold);
-                Box(new Rect(48,top+45,188,5),new Color(.3f,.32f,.27f));
-                Box(new Rect(48,top+45,188*Mathf.Clamp01(local.health/100f),5),local.health<35?gold:green);
-                Text(new Rect(47,top+57,193,23),"Аптечки команды: "+S.danger.medkits,small,muted);
-                if(colleague!=null) {
-                    string status=colleague.life=="dead"?"погиб":colleague.life=="downed"?"нужна помощь":Mathf.CeilToInt(colleague.health)+" / 100";
-                    bool online=S.players.Any(p=>HotelDangerRules.Slot(p.id)==colleague.slot);
-                    Text(new Rect(47,top+82,194,23),"Коллега: "+(online?status:"вне сети"),small,colleague.life=="healthy"?muted:gold);
-                }
-            }
-            string goal=HotelHudModel.Objective(S,Game.Session.LocalId);
-            if(goal!=""&&alert.kind=="") {
-                float h=normal.CalcHeight(new GUIContent(goal),305)+46;
-                HudCard(new Rect(32,28,339,h),brass);
-                Text(new Rect(47,37,305,23),"СЛЕДУЮЩИЙ ШАГ",small,gold);
-                Text(new Rect(47,64,305,h-32),goal,normal);
-                var hint=HotelOnboarding.GetHint(S,Game.Session.LocalId);
-                DrawTarget(hint?.targetId,goal,false);
-            }
-            else if(alert.target!="")DrawTarget(alert.target,"Сюда",true);
-            if(Game.Held!=null) {
-                string held=HotelPresentation.HeldLabel(S,Game.Held);
-                float h=normal.CalcHeight(new GUIContent(held),318)+40;
-                HudCard(new Rect(1058,819-h,350,h));
-                Text(new Rect(1073,829-h,318,h-25),held,normal);
-                Text(new Rect(1073,797,318,23),"Q  ·  положить",small,gold);
-            }
-            HudCard(new Rect(1222,839,186,32));
-            Text(new Rect(1236,844,165,24),"TAB  ·  журнал",small,gold);
-            if(!string.IsNullOrEmpty(Game.FocusLabel)&&local?.life!="dead") {
-                string label=HotelHudModel.Focus(Game.FocusLabel);
-                string key=HotelHudModel.FocusKey(Game.FocusLabel,Game.FocusId);
-                float keyWidth=Mathf.Max(68,bold.CalcSize(new GUIContent(key)).x+6);
-                float textWidth=590-keyWidth;
-                float h=Mathf.Max(47,normal.CalcHeight(new GUIContent(label),textWidth)+23);
-                float top=784-h;
-                HudCard(new Rect(403,top,634,h));
-                Text(new Rect(419,top+11,keyWidth,h-14),key,bold,gold);
-                Text(new Rect(431+keyWidth,top+11,textWidth,h-14),label,normal);
-            }
-            if(Game.LocalPlayer!=null&&Game.LocalPlayer.workTarget!="") {
-                Box(new Rect(543,794,354,7),new Color(.16f,.19f,.16f));
-                Box(new Rect(543,794,354*Mathf.Clamp01(Game.LocalPlayer.workProgress),7),gold);
-            }
-            var ping=S.mvp?.pings.LastOrDefault();
-            if(ping!=null)DrawTarget(ping.target,ping.playerId==Game.Session.LocalId?"Ваша отметка":"Коллега отмечает",false,true);
+            // Strict whitelist: shift, time, health, stamina. No focus, reticle, markers or notices.
+            if(Event.current.type==EventType.Repaint)HudElementCountForTest=4;
+            paperSurface=false;
+            TextShadow(new Rect(1168,35,242,31),"СМЕНА  "+S.day.ToString("00"),bold,paper);
+            int seconds=Mathf.CeilToInt(Mathf.Max(0,S.dayLength-S.time));
+            string clock=S.phase=="summary"?"00:00":(seconds/60).ToString("00")+":"+(seconds%60).ToString("00");
+            SegmentClock(new Vector2(1170,77),clock,1.0f,paper);
+            var crew=Danger?HotelDangerRules.Crew(S,Game.Session.LocalId):null;
+            Gauge(new Rect(78,790,247,21),Mathf.Clamp01((crew?.health??100f)/100f),new Color(.88f,.36f,.28f),true);
+            Gauge(new Rect(78,839,207,13),Mathf.Clamp01(Game.Stamina.Amount/100f),new Color(.83f,.81f,.48f),false);
+            if(TeachingHints.Visible)TeachingHint();
         }
-        void DrawTarget(string id,string caption,bool urgent,bool pingMarker=false)
+        void Gauge(Rect rect,float value,Color color,bool health)
         {
-            if(string.IsNullOrEmpty(id)||!HotelPresentation.TryTarget(S,id,out Vector3 target))return;
-            // A ping at the current objective owns its marker, avoiding two overprinted captions.
-            if(!pingMarker&&S.mvp?.pings.LastOrDefault()?.target==id)return;
-            Vector3 pixel=Game.View.WorldToScreenPoint(target+Vector3.up*.3f);
-            float scale=Mathf.Min(Screen.width/1440f,Screen.height/900f);
-            float x=(pixel.x-(Screen.width-1440*scale)*.5f)/scale;
-            float y=(Screen.height-pixel.y-(Screen.height-900*scale)*.5f)/scale;
-            float distance=Vector3.Distance(Game.View.transform.position,target);
-            // Markers outside the useful view become a compact direction note, not a side panel.
-            bool outside=pixel.z<=0||x<390||x>1040||y<190||y>610;
-            if(outside) {
-                Vector3 delta=target-Game.View.transform.position;delta.y=0;
-                Vector3 forward=Game.View.transform.forward;forward.y=0;
-                float angle=Vector3.SignedAngle(forward,delta,Vector3.up);
-                string direction=Mathf.Abs(angle)>135?"позади":angle>30?"справа":angle< -30?"слева":"впереди";
-                if(urgent)TextShadow(new Rect(585,124,315,27),direction+" · "+Mathf.CeilToInt(distance)+" м",small,gold);
-                else if(pingMarker) {
-                    string label=caption+" · "+MvpTargetName(id);
-                    float height=small.CalcHeight(new GUIContent(label),310);
-                    HudCard(new Rect(32,697-height,339,height+43),brass);
-                    Text(new Rect(47,704-height,310,height),label,small,gold);
-                    Text(new Rect(47,710,310,24),direction+" · "+Mathf.CeilToInt(distance)+" м",small,paper);
-                } else {
-                    string goal=HotelHudModel.Objective(S,Game.Session.LocalId);
-                    float top=28+normal.CalcHeight(new GUIContent(goal),305)+52;
-                    TextShadow(new Rect(46,top,310,24),direction+" · "+Mathf.CeilToInt(distance)+" м",small,gold);
-                }
-                return;
+            CutBox(new Rect(rect.x-3,rect.y-3,rect.width+6,rect.height+6),7,new Color(.06f,.055f,.045f,.9f));
+            CutBox(new Rect(rect.x-1,rect.y-1,rect.width+2,rect.height+2),5,paper);
+            CutBox(rect,4,new Color(.12f,.115f,.09f,.7f));
+            int count=health?10:8;float gap=3, w=(rect.width-(count-1)*gap)/count;
+            for(int i=0;i<count;i++) {
+                float part=Mathf.Clamp01(value*count-i);
+                if(part>0)CutBox(new Rect(rect.x+i*(w+gap),rect.y,w*part,rect.height),Mathf.Min(3,w*part*.25f),color);
             }
-            Box(new Rect(x-5,y-5,10,10),gold);Box(new Rect(x-2,y-2,4,4),ink);
-            TextShadow(new Rect(x-74,y+12,160,26),Mathf.CeilToInt(distance)+" м",small,paper);
-            if(pingMarker)
-                TextShadow(new Rect(x-96,y+35,260,24),caption,small,gold);
+            if(health) {
+                CutBox(new Rect(40,rect.y-4,25,29),5,new Color(.09f,.07f,.06f,.9f));
+                Box(new Rect(49,rect.y,7,21),paper);Box(new Rect(42,rect.y+7,21,7),paper);
+            } else {
+                Line(new Vector2(57,rect.y-6),new Vector2(45,rect.y+7),5,paper);
+                Line(new Vector2(45,rect.y+7),new Vector2(59,rect.y+7),5,paper);
+                Line(new Vector2(59,rect.y+7),new Vector2(48,rect.y+20),5,paper);
+            }
+        }
+        void SegmentClock(Vector2 at,string text,float size,Color color)
+        {
+            int[] bits={63,6,91,79,102,109,125,7,127,111};float x=at.x;
+            foreach(char c in text) {
+                if(c==':') {Box(new Rect(x+3,at.y+13*size,4*size,4*size),color);Box(new Rect(x+3,at.y+31*size,4*size,4*size),color);x+=14*size;continue;}
+                int mask=bits[c-'0'];Vector2[] p={new Vector2(4,0),new Vector2(26,4),new Vector2(26,28),new Vector2(4,49),new Vector2(0,28),new Vector2(0,4),new Vector2(4,24)};
+                for(int i=0;i<7;i++)if((mask&(1<<i))!=0) {
+                    bool horizontal=i==0||i==3||i==6;
+                    Rect r=new Rect(x+p[i].x*size,at.y+p[i].y*size,(horizontal?20:4)*size,(horizontal?4:20)*size);
+                    Box(new Rect(r.x+1,r.y+2,r.width,r.height),new Color(0,0,0,.8f));CutBox(r,1,color);
+                }
+                x+=36*size;
+            }
+        }
+        void TeachingHint()
+        {
+            if(Event.current.type==EventType.Repaint)TeachingHintDrawnForTest=true;
+            var r=new Rect(368,29,700,130);
+            CutBox(new Rect(r.x+3,r.y+5,r.width,r.height),17,new Color(0,0,0,.25f));
+            CutBox(r,17,documentPaper);Box(new Rect(r.x+18,r.y+18,4,r.height-36),stamp);
+            paperSurface=true;
+            Text(new Rect(r.x+37,r.y+12,531,25),TeachingHints.Title,bold,gold);
+            Text(new Rect(r.x+37,r.y+44,560,75),TeachingHints.Body,small);
+            Text(new Rect(r.x+602,r.y+20,82,45),"H\nскрыть",small,muted);
+            Line(new Vector2(r.x+599,r.y+20),new Vector2(r.x+599,r.y+109),1,brass);
+            paperSurface=false;
         }
         void TextShadow(Rect r,string value,GUIStyle style,Color color)
         {
-            Text(new Rect(r.x+1,r.y+1,r.width,r.height),value,style,new Color(0,0,0,.95f));
+            Text(new Rect(r.x+2,r.y+2,r.width,r.height),value,style,new Color(.03f,.03f,.02f,.95f));
             Text(r,value,style,color);
         }
-        void DrawAlert()
+        void TabletContext()
         {
-            var alert=HotelHudModel.Alert(S,Game.Session.LocalId,Game.Panel!="");
-            if(alert.kind=="")return;
-            float titleHeight=Mathf.Max(25,bold.CalcHeight(new GUIContent(alert.title),600));
-            float detailHeight=Mathf.Max(23,small.CalcHeight(new GUIContent(alert.detail),600));
-            var r=new Rect(AlertBounds.x,AlertBounds.y,AlertBounds.width,titleHeight+detailHeight+23);
-            Box(r,alert.urgent?new Color(.35f,.085f,.075f,.96f):new Color(.24f,.18f,.10f,.96f));
-            Box(new Rect(r.x,r.y,4,r.height),gold);
-            Text(new Rect(r.x+16,r.y+9,600,titleHeight),alert.title,bold,paper);
-            Text(new Rect(r.x+16,r.y+12+titleHeight,600,detailHeight),alert.detail,small,paper);
+            var alert=HotelHudModel.Alert(S,Game.Session.LocalId,true);
+            if(alert.kind!="") {MvpSection(alert.title);MvpText(alert.detail);}
+            if(!string.IsNullOrEmpty(Game.Session.SaveError)){MvpSection("НЕ УДАЛОСЬ СОХРАНИТЬ");MvpText(Game.Session.SaveError);}
+            if(Fold("tablet-context","Ваше снаряжение, объект и отметки")) {
+                MvpText(HotelPresentation.HeldLabel(S,Game.Held));
+                if(lastFocus!="")MvpText("Последний объект перед открытием: "+lastFocus,small);
+                var ping=S.mvp?.pings.LastOrDefault();
+                MvpText(ping==null?"Отметок нет.":(ping.playerId==Game.Session.LocalId?"Ваша отметка: ":"Отметка коллеги: ")+MvpTargetName(ping.target));
+                MvpText("E — взаимодействие в мире. Удерживайте для работы. Q — положить предмет. Закройте планшет перед действием.",small,muted);
+            }
+            if(Fold("tablet-notices","Уведомления службы · "+tabletNotices.Count)) {
+                if(tabletNotices.Count==0)MvpText("Новых сообщений нет.",small,muted);
+                foreach(string entry in tabletNotices)MvpText(entry,small);
+            }
         }
-        void DrawToast()
+        void TeachingControls()
         {
-            if(Game.Toast==""||(!Game.Playing&&Game.Panel!="steam"))return;
-            // Day briefings belong in the journal; they need not interrupt the first look at the hotel.
-            if(!HotelHudModel.ShowToast(Game.Playing?S:null,Game.Toast))return;
-            float height=Mathf.Max(38,small.CalcHeight(new GUIContent(Game.Toast),584)+18);
-            float y=Game.Panel==""?818:796;
-            HudCard(new Rect(412,y,616,height),brass);
-            Text(new Rect(428,y+8,584,height-10),Game.Toast,small);
+            if(MvpButton("Всплывающие подсказки: "+(TeachingHints.Enabled?"включены":"выключены"))) {
+                TeachingHints.Enabled=!TeachingHints.Enabled;TeachingHints.Dismiss(Time.unscaledTime);
+                if(!Game.Automated){PlayerPrefs.SetInt("localTeachingHints",TeachingHints.Enabled?1:0);PlayerPrefs.Save();}
+            }
+            MvpText("H скрывает текущую подсказку. Настройка только для вас; учебный темп отеля не меняется.",small,muted);
         }
     }
 }

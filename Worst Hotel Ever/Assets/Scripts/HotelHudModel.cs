@@ -26,11 +26,11 @@ namespace WorstHotel
                 string reason = HotelDangerRules.WorkError(state, playerId, "recover_" + self.slot);
                 return new HotelHudAlert { kind = "downed", urgent = true,
                     title = "Нужна помощь · " + Seconds(self.bleedout) + collapse,
-                    detail = reason == "" ? (panelOpen ? "Закройте журнал: удерживайте E · 1 аптечка" : "Удерживайте E для самопомощи · 1 аптечка") : reason + " · ждите коллегу" };
+                    detail = reason == "" ? (panelOpen ? "Закройте планшет: удерживайте E · 1 аптечка" : "Удерживайте E для самопомощи · 1 аптечка") : reason + " · ждите коллегу" };
             }
             if (self?.life == "dead")
                 return new HotelHudAlert { kind = "dead", urgent = true, title = "Вы погибли до конца смены" + collapse,
-                    detail = HotelDangerRules.HostCanForfeit(state) && playerId == 0 ? "TAB → признать провал или дождаться коллеги" : "Коллега ещё может закончить смену · TAB — журнал" };
+                    detail = HotelDangerRules.HostCanForfeit(state) && playerId == 0 ? "Дела → признать провал или дождаться коллеги" : "Коллега ещё может закончить смену · TAB — планшет" };
             if (critical)
                 return new HotelHudAlert { kind = "critical", urgent = true, title = "До провала смены · " + Seconds(danger.criticalRemaining),
                     detail = "Устраните источник или включите тревогу у выхода", target = "alarm" };

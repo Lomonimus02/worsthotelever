@@ -8,7 +8,9 @@ param(
     [string]$BuildDirectory = $env:WHE_TEST_BUILD_DIRECTORY,
     [string]$QaReport = 'docs/reports/qa-danger-alpha1.md',
     [string]$VerificationReport = 'TestResults/danger-candidate-results.txt',
-    [string]$BuildReport = 'TestResults/build-summary.txt'
+    [string]$BuildReport = 'TestResults/build-summary.txt',
+    [ValidateSet('Development','Player')]
+    [string]$BuildConfiguration = 'Development'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -73,8 +75,12 @@ $copies = @{
     'docs/DANGER_PLAYTEST_RU.md' = 'docs/DANGER_PLAYTEST_RU.md'
     'docs/RELEASE_GAMEPLAY_PLAN.md' = 'docs/RELEASE_GAMEPLAY_PLAN.md'
     'docs/UI_REDESIGN_PLAN.md' = 'docs/UI_REDESIGN_PLAN.md'
+    'docs/TABLET_UI_PLAN.md' = 'docs/TABLET_UI_PLAN.md'
     'docs/images/ui-alpha1-hud.png' = 'docs/images/ui-alpha1-hud.png'
     'docs/images/ui-alpha1-journal.png' = 'docs/images/ui-alpha1-journal.png'
+    'docs/images/tablet-alpha1-hud.png' = 'docs/images/tablet-alpha1-hud.png'
+    'docs/images/tablet-alpha1-device.png' = 'docs/images/tablet-alpha1-device.png'
+    'docs/images/tablet-alpha1-hint.png' = 'docs/images/tablet-alpha1-hint.png'
     'WORST_HOTEL_EVER_MASTER_PLAN.md' = 'WORST_HOTEL_EVER_MASTER_PLAN.md'
 }
 $copies[$qaReportPath] = $qaEntry
@@ -91,7 +97,7 @@ $manifest = [ordered]@{
     candidate = $CandidateName
     sourceCommit = $SourceCommit
     unity = '6000.3.2f1'
-    platform = 'Windows x64; Mono; DX11; development build'
+    platform = 'Windows x64; Mono; DX11; ' + $BuildConfiguration
     protocol = 'WHE-danger-5'
     runtimePath = $runtimeRelative
     runtimeSha256 = $runtimeHash

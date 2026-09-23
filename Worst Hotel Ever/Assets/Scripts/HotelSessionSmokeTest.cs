@@ -73,10 +73,19 @@ namespace WorstHotel
             yield return null;
             if(!Check(game.LocalPlayer!=null,"Connected client has no simulation player"))yield break;
             if(scenario=="ui") {yield return ReviewUI();Finish(errors.Count==0);yield break;}
+            if(scenario=="tablet-manual") {
+                // Interactive native-mouse QA only, still on the explicit process-isolated test save.
+                // Do not emit an automated PASS or run lifecycle fixtures behind the human operator.
+                Screen.SetResolution(1280,800,FullScreenMode.Windowed);
+                yield return new WaitForSecondsRealtime(.7f);
+                game.OpenPanel("tasks");yield break;
+            }
             if(scenario=="mvp-ui") {yield return ReviewMvpUI();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="mvp-interaction") {yield return ReviewMvpInteraction();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-interaction") {yield return ReviewDangerInteraction();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="journal-ui") {yield return ReviewJournalUI();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="tablet-ui") {yield return ReviewTabletUI();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="stamina") {yield return ReviewStamina();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-forfeit") {yield return ReviewDangerForfeit();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-checkpoint-write"||scenario=="danger-checkpoint-read") {yield return ReviewDangerCheckpoint();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-coop-host"||scenario=="danger-coop-client") {yield return ReviewDangerCoop();if(!finished)Finish(errors.Count==0);yield break;}

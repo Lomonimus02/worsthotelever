@@ -36,9 +36,9 @@ namespace WorstHotel
             state.tutorialFlags |= (int)skill;
         }
 
-        public static HotelHint GetHint(HotelState state, ulong localPlayerId)
+        public static HotelHint GetHint(HotelState state, ulong localPlayerId, bool ignoreSharedOptOut=false)
         {
-            if (state == null || state.tutorialSkipped || state.day > (state.contentVersion == 1 || state.mvp != null ? 2 : 1) ||
+            if (state == null || (state.tutorialSkipped&&!ignoreSharedOptOut) || state.day > (state.contentVersion == 1 || state.mvp != null ? 2 : 1) ||
                 (state.contentVersion == 0 && (state.tutorialFlags & (int)HotelTutorialSkill.All) == (int)HotelTutorialSkill.All) ||
                 state.players == null || state.rooms == null || state.guests == null || state.items == null) return null;
             PlayerState player = state.players.Find(p => p.id == localPlayerId);
