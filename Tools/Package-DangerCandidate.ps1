@@ -72,6 +72,9 @@ $copies = @{
     'docs/IMPLEMENTATION_STATUS.md' = 'docs/IMPLEMENTATION_STATUS.md'
     'docs/DANGER_PLAYTEST_RU.md' = 'docs/DANGER_PLAYTEST_RU.md'
     'docs/RELEASE_GAMEPLAY_PLAN.md' = 'docs/RELEASE_GAMEPLAY_PLAN.md'
+    'docs/UI_REDESIGN_PLAN.md' = 'docs/UI_REDESIGN_PLAN.md'
+    'docs/images/ui-alpha1-hud.png' = 'docs/images/ui-alpha1-hud.png'
+    'docs/images/ui-alpha1-journal.png' = 'docs/images/ui-alpha1-journal.png'
     'WORST_HOTEL_EVER_MASTER_PLAN.md' = 'WORST_HOTEL_EVER_MASTER_PLAN.md'
 }
 $copies[$qaReportPath] = $qaEntry
