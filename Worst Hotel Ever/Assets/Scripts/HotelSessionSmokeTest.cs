@@ -76,6 +76,7 @@ namespace WorstHotel
             if(scenario=="mvp-ui") {yield return ReviewMvpUI();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="mvp-interaction") {yield return ReviewMvpInteraction();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-interaction") {yield return ReviewDangerInteraction();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="journal-ui") {yield return ReviewJournalUI();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-forfeit") {yield return ReviewDangerForfeit();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-checkpoint-write"||scenario=="danger-checkpoint-read") {yield return ReviewDangerCheckpoint();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-coop-host"||scenario=="danger-coop-client") {yield return ReviewDangerCoop();if(!finished)Finish(errors.Count==0);yield break;}

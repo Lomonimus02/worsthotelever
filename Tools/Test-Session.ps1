@@ -1,7 +1,8 @@
 param([switch]$Mvp)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$exePath = Join-Path (Get-WheBuildDirectory) 'WorstHotelEver.exe'
 $resultsPath = Join-Path $projectRoot 'TestResults'
 if (!(Test-Path -LiteralPath $exePath)) { throw 'Build the Windows player first.' }
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null

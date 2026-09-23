@@ -2,7 +2,8 @@ param([switch]$Checkpoint,[switch]$Forfeit)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $resultsPath = Join-Path $projectRoot 'TestResults'
-$exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$exePath = Join-Path (Get-WheBuildDirectory) 'WorstHotelEver.exe'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $scenarios = if ($Checkpoint) { @('danger-checkpoint-write','danger-checkpoint-read') } elseif ($Forfeit) { @('danger-forfeit') } else { @('danger-interaction') }
 $world = ''

@@ -1,6 +1,12 @@
-param([switch]$TestsOnly)
+param([switch]$TestsOnly,[switch]$Ui)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$buildName = if ($Ui) { 'WindowsUI' } else { 'Windows' }
+$buildDirectory = Get-WheBuildDirectory -BuildDirectory (Join-Path $projectRoot "Builds\$buildName")
+if (!$TestsOnly -and $env:WHE_TEST_BUILD_DIRECTORY -and (Get-WheBuildDirectory) -ne $buildDirectory) {
+    throw 'The test build-directory override does not match this build target. Use -Ui for WindowsUI, or clear the override for Windows.'
+}
 $unityPath = 'C:\Program Files\Unity\Hub\Editor\6000.3.2f1\Editor\Unity.exe'
 $projectPath = Join-Path $projectRoot 'Worst Hotel Ever'
 $resultsPath = Join-Path $projectRoot 'TestResults'
@@ -12,7 +18,7 @@ foreach ($meta in Get-ChildItem -LiteralPath (Join-Path $projectPath 'Assets') -
     if (!$match.Success) { throw "Invalid Unity GUID: $($meta.FullName)" }
     if (!$assetGuids.Add($match.Groups[1].Value)) { throw "Duplicate Unity GUID: $($meta.FullName)" }
 }
-$method = if ($TestsOnly) { 'WorstHotel.BuildTools.HotelBuild.Validate' } else { 'WorstHotel.BuildTools.HotelBuild.BuildWindows' }
+$method = if ($TestsOnly) { 'WorstHotel.BuildTools.HotelBuild.Validate' } elseif ($Ui) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsUi' } else { 'WorstHotel.BuildTools.HotelBuild.BuildWindows' }
 $logPath = Join-Path $resultsPath 'build.log'
 $arguments = "-batchmode -nographics -quit -projectPath `"$projectPath`" -executeMethod $method -logFile `"$logPath`""
 $run = Start-Process -FilePath $unityPath -ArgumentList $arguments -WindowStyle Hidden -PassThru
@@ -20,4 +26,4 @@ $run = Start-Process -FilePath $unityPath -ArgumentList $arguments -WindowStyle 
 $run.WaitForExit()
 if ($run.ExitCode -ne 0) { Get-Content -LiteralPath $logPath -Tail 70; throw "Unity failed: $($run.ExitCode). Log: $logPath" }
 Get-Content -LiteralPath (Join-Path $resultsPath 'simulation-tests.txt')
-if (!$TestsOnly) { Get-Content -LiteralPath (Join-Path $resultsPath 'build-summary.txt'); Write-Output (Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe') }
+if (!$TestsOnly) { Get-Content -LiteralPath (Join-Path $resultsPath 'build-summary.txt'); Write-Output (Join-Path $buildDirectory 'WorstHotelEver.exe') }

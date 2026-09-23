@@ -42,6 +42,7 @@ namespace WorstHotel.BuildTools
                 Run("DangerComplaints",HotelDangerComplaintTests.RunAll);
                 Run("DangerPresentation",HotelDangerPresentationTests.RunAll);
                 Run("DangerWorld",HotelDangerWorldTests.RunAll);
+                Run("CompactHud",HotelHudTests.RunAll);
                 File.WriteAllLines(Path.Combine(Root,"TestResults","simulation-tests.txt"),results);
                 if(failures.Count!=0)throw new AggregateException("Native suites failed: "+failures.Count,failures);
                 Debug.Log("WHE_TESTS_PASSED count="+results.Count);
@@ -50,10 +51,18 @@ namespace WorstHotel.BuildTools
         [MenuItem("Worst Hotel/Build Windows danger alpha")]
         public static void BuildWindows()
         {
+            BuildWindowsAt("Windows");
+        }
+        public static void BuildWindowsUi()
+        {
+            BuildWindowsAt("WindowsUI");
+        }
+        static void BuildWindowsAt(string outputDirectory)
+        {
             Validate();
             EditorSettings.serializationMode=SerializationMode.ForceText;
             PlayerSettings.companyName="Almost Grand";PlayerSettings.productName="Worst Hotel Ever";
-            PlayerSettings.bundleVersion="1.1.0";
+            PlayerSettings.bundleVersion="1.1.1";
             PlayerSettings.runInBackground=true;PlayerSettings.resizableWindow=true;
             PlayerSettings.defaultScreenWidth=1440;PlayerSettings.defaultScreenHeight=900;
             PlayerSettings.fullScreenMode=FullScreenMode.Windowed;
@@ -67,7 +76,7 @@ namespace WorstHotel.BuildTools
             EditorSceneManager.SaveScene(scene,scenePath);
             EditorBuildSettings.scenes=new[]{new EditorBuildSettingsScene(scenePath,true)};
             AssetDatabase.SaveAssets();
-            string folder=Path.Combine(Root,"Builds","Windows");Directory.CreateDirectory(folder);
+            string folder=Path.Combine(Root,"Builds",outputDirectory);Directory.CreateDirectory(folder);
             var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes=new[]{scenePath},locationPathName=Path.Combine(folder,"WorstHotelEver.exe"),
                 target=BuildTarget.StandaloneWindows64,options=BuildOptions.Development

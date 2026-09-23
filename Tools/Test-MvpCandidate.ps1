@@ -1,20 +1,29 @@
 param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$buildDirectory = Get-WheBuildDirectory
+if (!$SkipBuild -and $buildDirectory -ne (Join-Path $projectRoot 'Builds\Windows')) {
+    throw 'An overridden build directory requires -SkipBuild. Build WindowsUI with Build-Windows.ps1 -Ui or Test-UICandidate.ps1.'
+}
 $resultsPath = Join-Path $projectRoot 'TestResults'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $reportPath = Join-Path $resultsPath 'mvp-candidate-results.txt'
 $records = [System.Collections.Generic.List[string]]::new()
 $records.Add('MVP candidate verification: ' + (Get-Date).ToString('o'))
+$records.Add('Build directory: ' + $buildDirectory)
 function Run-Stage([string]$Name, [hashtable]$Options = @{}) {
     Write-Output "RUN: $Name"
-    & (Join-Path $PSScriptRoot $Name) @Options
+    & (Join-Path $PSScriptRoot $Name) @Options | ForEach-Object {
+        if ($_ -is [string] -and $_.StartsWith('NOT_VERIFIED:') -and !$records.Contains($_)) { $records.Add($_) }
+        Write-Output $_
+    }
     $records.Add('PASS: ' + $Name + ' ' + (($Options.Keys | Sort-Object) -join ','))
     [IO.File]::WriteAllLines($reportPath, $records)
 }
 try {
     if (!$SkipBuild) { Run-Stage 'Build-Windows.ps1' }
-    $dllPath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver_Data\Managed\Assembly-CSharp.dll'
+    $dllPath = Join-Path $buildDirectory 'WorstHotelEver_Data\Managed\Assembly-CSharp.dll'
     $dllHash = (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash
     $records.Add('Runtime SHA256: ' + $dllHash)
     # These opt-in test scripts use isolated fixture slots, not the normal hotel.

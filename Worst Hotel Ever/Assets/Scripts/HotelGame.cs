@@ -114,7 +114,7 @@ namespace WorstHotel
             }
             if(Playing && keyboard!=null && keyboard.tabKey.wasPressedThisFrame) {
                 string overview=HotelPresentation.DangerTerminal(Session.State)?"summary":"tasks";
-                OpenPanel(Panel==overview?"":overview);
+                OpenPanel(HotelHudModel.IsJournalPanel(Panel)?"":overview);
             }
             if(!Playing) {
                 if(player!=null) {

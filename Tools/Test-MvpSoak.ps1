@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$exePath = Join-Path $projectRoot 'Builds\Windows\WorstHotelEver.exe'
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$exePath = Join-Path (Get-WheBuildDirectory) 'WorstHotelEver.exe'
 $resultsPath = Join-Path $projectRoot 'TestResults'
 New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
 $previousWorld = ''

@@ -5,7 +5,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$buildRoot = Join-Path $projectRoot 'Builds\Windows'
+. (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
+$buildRoot = Get-WheBuildDirectory
 $archivePath = Join-Path $projectRoot 'Builds\WorstHotelEver-MVP-1.0.0-rc1-Windows.zip'
 $reportPath = Join-Path $projectRoot 'TestResults\mvp-candidate-results.txt'
 $runtimeRelative = 'WorstHotelEver_Data/Managed/Assembly-CSharp.dll'
