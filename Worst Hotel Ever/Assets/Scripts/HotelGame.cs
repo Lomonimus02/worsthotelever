@@ -57,7 +57,7 @@ namespace WorstHotel
             preview=new HotelSimulation().State; World.Apply(preview,ulong.MaxValue);
             View=new GameObject("First person camera").AddComponent<Camera>(); View.tag="MainCamera";
             View.nearClipPlane=.06f; View.farClipPlane=85; View.fieldOfView=Fov;
-            View.backgroundColor=new Color(.32f,.47f,.53f); View.clearFlags=CameraClearFlags.SolidColor;
+            View.backgroundColor=new Color(.12f,.15f,.17f); View.clearFlags=CameraClearFlags.SolidColor;
             View.gameObject.AddComponent<AudioListener>();
             Audio=gameObject.AddComponent<HotelAudio>();
             UI=gameObject.AddComponent<HotelUI>(); UI.Game=this;
@@ -83,9 +83,9 @@ namespace WorstHotel
             View.transform.SetParent(player.transform,false); View.transform.localPosition=Vector3.up*1.65f;
             handAnchor=new GameObject("Carry anchor").transform; handAnchor.SetParent(View.transform,false);
             handAnchor.localPosition=new Vector3(.3f,-.43f,.66f);
-            var shader=Resources.Load<Shader>("Hotel/HotelSurface");
-            if(shader!=null&&sleeveMaterial==null){sleeveMaterial=new Material(shader);sleeveMaterial.SetColor("_BaseColor",new Color(.42f,.17f,.14f));}
-            if(shader!=null&&gloveMaterial==null){gloveMaterial=new Material(shader);gloveMaterial.SetColor("_BaseColor",new Color(.86f,.70f,.45f));}
+            // Built-in capsule/sphere UVs move with the hands. Library materials outlive sessions.
+            sleeveMaterial=HotelTextureLibrary.GetMaterial(HotelSurfaceFamily.Cloth,HotelInk.Burgundy,HotelMappingMode.UV0);
+            gloveMaterial=HotelTextureLibrary.GetMaterial(HotelSurfaceFamily.Rubber,HotelInk.Linen,HotelMappingMode.UV0);
             // Small stylized sleeves stay below the reticle; no full-body camera coupling.
             foreach(float side in new[]{-1f,1f}) {
                 var sleeve=GameObject.CreatePrimitive(PrimitiveType.Capsule);sleeve.name="Employee sleeve";
@@ -323,7 +323,7 @@ namespace WorstHotel
         }
         public void Leave() { StopWork(); if(Session.Disconnect())OpenPanel("menu"); }
         bool CanQuit(){if(Session!=null&&Session.OwnsHotel&&!Session.Save()){OpenPanel(Session.NeedsRecovery?"recovery":"pause");return false;}return true;}
-        void OnDestroy(){Application.wantsToQuit-=CanQuit;if(sleeveMaterial!=null)Destroy(sleeveMaterial);if(gloveMaterial!=null)Destroy(gloveMaterial);}
+        void OnDestroy(){Application.wantsToQuit-=CanQuit;}
         public void StoreSettings() {
             PlayerPrefs.SetFloat("sensitivity",Sensitivity);PlayerPrefs.SetFloat("fov",Fov);PlayerPrefs.SetFloat("volume",Volume);
             PlayerPrefs.SetInt("invert",InvertY?1:0);PlayerPrefs.SetInt("bob",Bob?1:0);

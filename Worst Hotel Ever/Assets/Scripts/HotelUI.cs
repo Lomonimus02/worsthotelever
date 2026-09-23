@@ -76,7 +76,7 @@ namespace WorstHotel
             DrawButtonSurface(r,enabled,accent,hover);
             bool old=GUI.enabled;GUI.enabled=enabled;
             Color oldText=button.normal.textColor;
-            button.normal.textColor=paperSurface&&(!accent||!enabled)?documentInk:paper;
+            button.normal.textColor=!enabled?documentMuted:paperSurface&&!accent?documentInk:paper;
             button.hover.textColor=button.normal.textColor;button.active.textColor=button.normal.textColor;button.focused.textColor=button.normal.textColor;
             bool pressed=GUI.Button(r,label,button);button.normal.textColor=oldText;GUI.enabled=old;return pressed;
         }
@@ -86,7 +86,7 @@ namespace WorstHotel
             Text(new Rect(217,279,448,255),"WORST\nHOTEL\nEVER",huge);
             Line(new Vector2(677,285),new Vector2(677,681),1,documentMuted);
             Text(new Rect(225,562,402,80),"Пять звёзд. Пока одна.\nГостиничная смена для 1–2 сотрудников.",normal);
-            Text(new Rect(225,661,399,40),"1.2.0 · TABLET ALPHA\nТестовая сборка — не релиз",small,muted);
+            Text(new Rect(225,661,399,40),"1.3.0 · GRIM ALPHA\nТестовая сборка — не релиз",small,muted);
             if(Game.Panel=="connect") {
                 Text(new Rect(723,283,486,48),"Подключение",title);
                 Text(new Rect(723,341,287,25),"IP-адрес",small);

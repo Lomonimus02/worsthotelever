@@ -55,6 +55,12 @@ if (!($report -match '^OVERALL_PASS:') -or ($report -match '^OVERALL_FAIL:') -or
 if (($report -match '^Build directory: ') -and !($report -contains ('Build directory: ' + $buildRoot))) {
     throw 'The candidate verification report names a different build directory.'
 }
+$visualHash = $null
+if (($report -match '^Visual assets SHA256: ') -or $CandidateName -like '*-grim-*') {
+    . (Join-Path $PSScriptRoot 'Get-WheVisualFingerprint.ps1')
+    $visualHash = Get-WheVisualFingerprint $buildRoot
+    if (!($report -contains ('Visual assets SHA256: ' + $visualHash))) { throw 'Visual assets differ from the verified candidate.' }
+}
 if ((Test-Path -LiteralPath $archivePath) -or (Test-Path -LiteralPath ($archivePath + '.sha256'))) {
     throw 'This candidate archive/checksum already exists. Do not overwrite an issued candidate.'
 }
@@ -84,6 +90,9 @@ $copies = @{
     'WORST_HOTEL_EVER_MASTER_PLAN.md' = 'WORST_HOTEL_EVER_MASTER_PLAN.md'
 }
 $copies[$qaReportPath] = $qaEntry
+if ($CandidateName -like '*-grim-*') {
+    foreach ($relative in @('docs/GRIM_TEXTURES_PLAN.md','docs/art/grim-textures-v1.json','docs/images/grim-alpha1-lobby.png','docs/images/grim-alpha1-bedroom.png','docs/images/grim-alpha1-tablet.png')) { $copies[$relative] = $relative }
+}
 $copies[$reportPath] = 'LOCAL_TEST_RESULTS.txt'
 $copies[$buildReportPath] = 'BUILD_RESULT.txt'
 foreach ($source in $copies.Keys) {
@@ -101,6 +110,7 @@ $manifest = [ordered]@{
     protocol = 'WHE-danger-5'
     runtimePath = $runtimeRelative
     runtimeSha256 = $runtimeHash
+    visualAssetsSha256 = $visualHash
     packagedAt = (Get-Date).ToString('o')
     localVerification = 'OVERALL_PASS; see LOCAL_TEST_RESULTS.txt'
     qaReport = $qaEntry
@@ -130,6 +140,7 @@ try {
 } finally { $stream.Dispose() }
 
 # Read and hash every compressed entry, not just the EXE bootstrap.
+if ($visualHash -and (Get-WheVisualFingerprint $buildRoot) -ne $visualHash) { throw 'Visual assets changed during packaging.' }
 $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
 try {
     if ($expected[$runtimeRelative] -ne $runtimeHash) { throw 'Packaged runtime no longer matches the candidate verification report.' }

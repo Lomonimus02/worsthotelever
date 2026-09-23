@@ -1,12 +1,12 @@
-param([switch]$TestsOnly,[switch]$Ui,[switch]$Tablet)
+param([switch]$TestsOnly,[switch]$Ui,[switch]$Tablet,[switch]$Grim)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Get-WheBuildDirectory.ps1')
-if ($Ui -and $Tablet) { throw 'Choose one separate build target: Ui or Tablet.' }
-$buildName = if ($Tablet) { 'WindowsTablet' } elseif ($Ui) { 'WindowsUI' } else { 'Windows' }
+if (([int]$Ui.IsPresent + [int]$Tablet.IsPresent + [int]$Grim.IsPresent) -gt 1) { throw 'Choose one separate build target: Ui, Tablet or Grim.' }
+$buildName = if ($Grim) { 'WindowsGrim' } elseif ($Tablet) { 'WindowsTablet' } elseif ($Ui) { 'WindowsUI' } else { 'Windows' }
 $buildDirectory = Get-WheBuildDirectory -BuildDirectory (Join-Path $projectRoot "Builds\$buildName")
 if (!$TestsOnly -and $env:WHE_TEST_BUILD_DIRECTORY -and (Get-WheBuildDirectory) -ne $buildDirectory) {
-    throw 'The test build-directory override does not match this build target. Use -Ui for WindowsUI, or clear the override for Windows.'
+    throw 'The test build-directory override does not match this build target. Choose -Ui, -Tablet or -Grim, or clear the override for Windows.'
 }
 $unityPath = 'C:\Program Files\Unity\Hub\Editor\6000.3.2f1\Editor\Unity.exe'
 $projectPath = Join-Path $projectRoot 'Worst Hotel Ever'
@@ -19,7 +19,7 @@ foreach ($meta in Get-ChildItem -LiteralPath (Join-Path $projectPath 'Assets') -
     if (!$match.Success) { throw "Invalid Unity GUID: $($meta.FullName)" }
     if (!$assetGuids.Add($match.Groups[1].Value)) { throw "Duplicate Unity GUID: $($meta.FullName)" }
 }
-$method = if ($TestsOnly) { 'WorstHotel.BuildTools.HotelBuild.Validate' } elseif ($Tablet) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsTablet' } elseif ($Ui) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsUi' } else { 'WorstHotel.BuildTools.HotelBuild.BuildWindows' }
+$method = if ($TestsOnly) { 'WorstHotel.BuildTools.HotelBuild.Validate' } elseif ($Grim) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsGrim' } elseif ($Tablet) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsTablet' } elseif ($Ui) { 'WorstHotel.BuildTools.HotelBuild.BuildWindowsUi' } else { 'WorstHotel.BuildTools.HotelBuild.BuildWindows' }
 $logPath = Join-Path $resultsPath 'build.log'
 $arguments = "-batchmode -nographics -quit -projectPath `"$projectPath`" -executeMethod $method -logFile `"$logPath`""
 $run = Start-Process -FilePath $unityPath -ArgumentList $arguments -WindowStyle Hidden -PassThru

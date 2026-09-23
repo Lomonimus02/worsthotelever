@@ -85,6 +85,7 @@ namespace WorstHotel
             if(scenario=="danger-interaction") {yield return ReviewDangerInteraction();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="journal-ui") {yield return ReviewJournalUI();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="tablet-ui") {yield return ReviewTabletUI();if(!finished)Finish(errors.Count==0);yield break;}
+            if(scenario=="grim-textures") {yield return ReviewGrimTextures();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="stamina") {yield return ReviewStamina();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-forfeit") {yield return ReviewDangerForfeit();if(!finished)Finish(errors.Count==0);yield break;}
             if(scenario=="danger-checkpoint-write"||scenario=="danger-checkpoint-read") {yield return ReviewDangerCheckpoint();if(!finished)Finish(errors.Count==0);yield break;}

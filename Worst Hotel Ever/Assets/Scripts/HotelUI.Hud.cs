@@ -67,7 +67,7 @@ namespace WorstHotel
             int count=health?10:8;float gap=3, w=(rect.width-(count-1)*gap)/count;
             for(int i=0;i<count;i++) {
                 float part=Mathf.Clamp01(value*count-i);
-                if(part>0)CutBox(new Rect(rect.x+i*(w+gap),rect.y,w*part,rect.height),Mathf.Min(3,w*part*.25f),color);
+                if(part>0)TexturedCutBox(new Rect(rect.x+i*(w+gap),rect.y,w*part,rect.height),Mathf.Min(3,w*part*.25f),metalTexture,color*1.6f,70);
             }
             if(health) {
                 CutBox(new Rect(40,rect.y-4,25,29),5,new Color(.09f,.07f,.06f,.9f));
@@ -97,7 +97,7 @@ namespace WorstHotel
             if(Event.current.type==EventType.Repaint)TeachingHintDrawnForTest=true;
             var r=new Rect(368,29,700,130);
             CutBox(new Rect(r.x+3,r.y+5,r.width,r.height),17,new Color(0,0,0,.25f));
-            CutBox(r,17,documentPaper);Box(new Rect(r.x+18,r.y+18,4,r.height-36),stamp);
+            TexturedCutBox(r,17,screenTexture,new Color(.82f,.97f,.84f));Box(new Rect(r.x+18,r.y+18,4,r.height-36),stamp);
             paperSurface=true;
             Text(new Rect(r.x+37,r.y+12,531,25),TeachingHints.Title,bold,gold);
             Text(new Rect(r.x+37,r.y+44,560,75),TeachingHints.Body,small);

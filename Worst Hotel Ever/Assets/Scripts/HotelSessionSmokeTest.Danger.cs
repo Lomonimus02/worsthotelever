@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -16,7 +17,16 @@ namespace WorstHotel
             if (!Check(game.Session.IsHost && game.Session.State.version == 3 && HotelDangerRules.Enabled(game.Session.State), "Production did not create danger v3")) yield break;
             var background = InputSystem.settings.backgroundBehavior;
             InputSystem.settings.backgroundBehavior = InputSettings.BackgroundBehavior.IgnoreFocus;
-            InputSystem.EnableDevice(Keyboard.current);
+            // The opt-in hidden test must not share a held-E state with Windows keyboard events.
+            // Commands still travel through the normal InputSystem -> HotelGame.Update path.
+            var nativeKeyboards = new List<Keyboard>();
+            foreach(var device in InputSystem.devices)
+                if(device is Keyboard keyboard && keyboard.enabled)nativeKeyboards.Add(keyboard);
+            Keyboard previousKeyboard=Keyboard.current;
+            foreach(var keyboard in nativeKeyboards)InputSystem.DisableDevice(keyboard);
+            var fixtureKeyboard=InputSystem.AddDevice<Keyboard>("WHE danger fixture keyboard");
+            fixtureKeyboard.MakeCurrent();
+            checks.Add("FIXTURE_ISOLATED_KEYBOARD_NORMAL_INPUTSYSTEM_UPDATE_PATH");
             try
             {
                 var s = game.Session.State;
@@ -160,7 +170,13 @@ namespace WorstHotel
                 if(!Check(s.phase=="preparation"&&HotelDangerRules.Crew(s,0).life=="healthy","Cannot recover after failed shift"))yield break;
                 checks.Add("SUCCESS_FAILURE_AND_RECOVERY_ONE_PERSISTENT_HOTEL");
             }
-            finally {MvpInteractionRelease();InputSystem.settings.backgroundBehavior=background;}
+            finally {
+                MvpInteractionRelease();
+                InputSystem.RemoveDevice(fixtureKeyboard);
+                foreach(var keyboard in nativeKeyboards)InputSystem.EnableDevice(keyboard);
+                if(previousKeyboard!=null&&previousKeyboard.added)previousKeyboard.MakeCurrent();
+                InputSystem.settings.backgroundBehavior=background;
+            }
         }
 
         Vector3 DangerColliderAim(string target)
@@ -190,7 +206,8 @@ namespace WorstHotel
             try {while(crew.life=="downed"&&Time.realtimeSinceStartup-started<8)yield return null;}
             finally {MvpInteractionRelease();}
             yield return null;
-            if(!Check(crew.life=="healthy"&&Time.realtimeSinceStartup-started>=5.7f,"Self-help did not require actual held E"))yield break;
+            if(!Check(crew.life=="healthy"&&Time.realtimeSinceStartup-started>=5.7f,
+                "Self-help held-E failed life="+crew.life+" elapsed="+(Time.realtimeSinceStartup-started)+MvpInteractionRayDetail()))yield break;
             checks.Add("REAL_E_SELF_RECOVERY_6_SECONDS");
         }
 

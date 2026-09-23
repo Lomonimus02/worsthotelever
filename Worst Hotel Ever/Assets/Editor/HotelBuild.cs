@@ -45,6 +45,7 @@ namespace WorstHotel.BuildTools
                 Run("CompactHud",HotelHudTests.RunAll);
                 Run("TabletPresentation",HotelTabletTests.RunAll);
                 Run("Stamina",HotelStaminaTests.RunAll);
+                Run("GrimTextures",HotelTextureTests.RunAll);
                 File.WriteAllLines(Path.Combine(Root,"TestResults","simulation-tests.txt"),results);
                 if(failures.Count!=0)throw new AggregateException("Native suites failed: "+failures.Count,failures);
                 Debug.Log("WHE_TESTS_PASSED count="+results.Count);
@@ -60,12 +61,13 @@ namespace WorstHotel.BuildTools
             BuildWindowsAt("WindowsUI");
         }
         public static void BuildWindowsTablet(){BuildWindowsAt("WindowsTablet");}
+        public static void BuildWindowsGrim(){BuildWindowsAt("WindowsGrim");}
         static void BuildWindowsAt(string outputDirectory)
         {
             Validate();
             EditorSettings.serializationMode=SerializationMode.ForceText;
             PlayerSettings.companyName="Almost Grand";PlayerSettings.productName="Worst Hotel Ever";
-            PlayerSettings.bundleVersion="1.2.0";
+            PlayerSettings.bundleVersion="1.3.0";
             PlayerSettings.runInBackground=true;PlayerSettings.resizableWindow=true;
             PlayerSettings.defaultScreenWidth=1440;PlayerSettings.defaultScreenHeight=900;
             PlayerSettings.fullScreenMode=FullScreenMode.Windowed;
@@ -82,7 +84,7 @@ namespace WorstHotel.BuildTools
             string folder=Path.Combine(Root,"Builds",outputDirectory);Directory.CreateDirectory(folder);
             var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes=new[]{scenePath},locationPathName=Path.Combine(folder,"WorstHotelEver.exe"),
-                target=BuildTarget.StandaloneWindows64,options=outputDirectory=="WindowsTablet"?BuildOptions.None:BuildOptions.Development
+                target=BuildTarget.StandaloneWindows64,options=outputDirectory=="WindowsTablet"||outputDirectory=="WindowsGrim"?BuildOptions.None:BuildOptions.Development
             });
             string result="Result: "+report.summary.result+"\nVersion: "+PlayerSettings.bundleVersion+"\nUnity: "+Application.unityVersion+"\nErrors: "+report.summary.totalErrors+"\nWarnings: "+report.summary.totalWarnings+"\nBytes: "+report.summary.totalSize+"\nDuration: "+report.summary.totalTime;
             File.WriteAllText(Path.Combine(Root,"TestResults","build-summary.txt"),result);

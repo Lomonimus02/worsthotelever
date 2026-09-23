@@ -210,7 +210,10 @@ namespace WorstHotel
                 ~(1 << 2), QueryTriggerInteraction.Ignore))
                 hitName = hit.collider.name + " target=" + hit.collider.GetComponentInParent<HotelTarget>()?.id;
             return " focus=" + game.FocusId + " ray=" + hitName + " floor=" + game.Controller.transform.position +
-                " held=" + game.Held?.kind + " work=" + game.LocalPlayer?.workTarget;
+                " held=" + game.Held?.kind + " work=" + game.LocalPlayer?.workTarget +
+                " input=" + game.InputActive + " keyboard=" + Keyboard.current?.enabled +
+                " E=" + Keyboard.current?.eKey.isPressed + " canAct=" + HotelDangerRules.CanAct(game.Session.State,game.Session.LocalId) +
+                " block=" + (HotelDangerRules.IsWorkTarget(game.FocusId)?HotelDangerRules.WorkError(game.Session.State,game.Session.LocalId,game.FocusId):"");
         }
 
         IEnumerator MvpInteractionEnterRoom(int number)

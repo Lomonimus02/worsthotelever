@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "created": "2026-09-23",
+  "generator": "OpenAI built-in image_gen",
+  "purpose": "Original grim hotel albedo + staff-tablet surface textures; no third-party game assets copied.",
+  "import": "World tiles: Mirror, sRGB, mipmapped, max512. Tablet casing: Repeat; screen: Clamp; both max1024 without mipmaps. PNG originals preserved unmodified.",
+  "assets": [
+    {
+      "name": "wall-plaster",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/wall-plaster.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "6E67EC9DD1F60D9BCA29CBA9A03DF657265F0AAE33B28FCF5997108E281E33C3",
+      "prompt": "Use case: stylized-concept. Asset type: production tileable game albedo texture, single square image 1024x1024, flat full-frame surface with no perspective. Primary request: original worn hotel plaster, dark-coop-horror low-poly art direction reminiscent of tactile grimy late-1990s industrial games. Muted pale grey with a subtle sickly olive tint, layered old paint, sparse peeling flecks, rubbed areas, small hairline cracks, uneven damp discoloration. Broad hand-painted forms and restrained coarse grain, not photographic micro-noise. Midtone base around 65 percent brightness so engine lighting can darken it. Seamlessly tile on ALL four edges, evenly distributed detail, no central subject or vignette. Diffuse albedo only: neutral even illumination, NO baked shadows, highlights, light source, room, panels, border, objects, text, logo or watermark. A single material swatch, not a contact sheet.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-81b83d73-9031-47cd-a3a7-7afa14cd589e.png"
+    },
+    {
+      "name": "wood",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/wood.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "A5E6D409205E1C09FD12B06EDFC2C836265C4F0BCD4E0E934AB12AFEFBAC5F8A",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Old desaturated grey-brown hotel wood grain, rubbed varnish, fine splits, irregular broad horizontal grain and occasional rubbed lighter patches, subtle narrow plank joins. Medium-light neutral base for engine tinting, not already black. Worn wood suitable for doors, counters, shelving and floor; modest detail that remains readable at 256 pixels.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-60d43406-9113-48a9-bfdb-ce9aa28954a2.png"
+    },
+    {
+      "name": "carpet",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/carpet.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "6BFB43D815062FB2FD7CD3146490BC4CB44EF3F61531D4F04E8D8B2227A309AD",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Worn hotel carpet with an understated repeating small geometric diamond motif, frayed coarse wool, faded desaturated taupe grey and charcoal motif. Tone-neutral, medium brightness base to tint dark burgundy/teal in game. Threadbare abrasion, no distinct large stains or debris. Flat woven surface, no perspective, no border; pattern must continue across opposite edges.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-c82fb1dd-84d0-45af-995c-83efdb7c6b45.png"
+    },
+    {
+      "name": "cloth",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/cloth.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "E2F3FAC0EF5BF541CEF8559729025308BF3EF366CDC7E1AF27F8A910FE807EFA",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Neutral warm grey coarse linen/canvas weave, stylized soft broad fibres and subtle irregular warp/weft, faded worn cotton, small abrasion. Clean-but-old washed textile, no grime blotches, NO folds, seams, buttons, large stains or holes; it must also work on clean towels, bedsheets and staff uniforms. Medium-light around 70% brightness, all-over restrained weave.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-68ef6de8-bc0f-4a3e-9062-dd40ef714a85.png"
+    },
+    {
+      "name": "metal",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/metal.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "E5C57F3FFF687C7423093919F1645CCAE4F2190F892FBA572FD78DDDB53E244D",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Old brushed industrial painted steel, largely desaturated medium grey, rubbed coating and a few dark scratches, small oxide freckles, very subtle dark grime; not bright chrome. Full-frame continuous flat sheet without bolts or panels. Enough neutral midtones for tinted brass, iron, machines and tools.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-8664108f-a39e-492c-ad3f-1c340cb595ac.png"
+    },
+    {
+      "name": "ceramic",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/ceramic.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "3121E592F3D3DA5371A408E83FB8BF75126B75BCD348777FBF7E263F269965CC",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Old off-white grey glazed ceramic surface, restrained fine crazing and worn speckles, sparse grey grime caught in tiny imperfections; one continuous flat material WITHOUT tiles or grout, because geometry defines tiles. Matte diffuse surface, no glossy reflection or lighting. Mostly clean pale base, modest aged texture.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-4dff74c2-7fd6-48cf-9f85-0ad79e188bd4.png"
+    },
+    {
+      "name": "rubber",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/rubber.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "A4995F2475CF99740C9B17296D050BAB4DBDD6F049C569C6858020F6320589A4",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Scuffed dark grey rubber and molded industrial polymer, broad rubbed abrasion with subtle fine grain, restrained dusty grey wear scratches, no distinct shapes, seams, screws, logos or embossed markings. Mid-grey lit reference, not pitch-black; will be tinted by engine. Continuous homogeneous texture.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-7e0c2191-b6ce-4e43-a7d2-0afe1cf934c6.png"
+    },
+    {
+      "name": "paper",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/paper.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "56CC52D87821980C9C4C5AA05A4739174D089D2345BCF1909B2EA33FC6DDC15B",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Aged medium-light grey parchment / hotel notice paper, restrained paper fibres, very faint tea-colour foxing and uneven wear. No writing, handwriting, symbols, fold lines, burnt border or tears. Low contrast texture to support clearly readable live Cyrillic lettering; continuous seamless paper surface.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-1b8b80db-8a04-49af-9bb3-66252f0faa0a.png"
+    },
+    {
+      "name": "skin",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/skin.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "C5A3CC25A94A399C3AD3441CBDF41AE081BF7E761835C31FC791A2B08CB33712",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. A stylized softly mottled neutral beige-grey matte latex/painted puppet surface for low-poly characters and work gloves. Subtle irregular paint grain, gentle rubbed wear, NO human body part, NO face, pores, blood, cracks, wounds, seams or patterns. Mid-light tint-compatible neutral diffuse albedo, soft low-contrast detail.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-c58e80c8-e009-4fc5-8f81-74c2ca88050b.png"
+    },
+    {
+      "name": "water",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/water.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "7618CA730CA175592238ACF99ABAE9A87117E4047E29D9F7CEED4BE3F36C89AB",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Shallow water surface seen perfectly straight down, desaturated grey blue with broad faint overlapping ripples and soft murky variation. Graphic hand-painted waves, NOT photorealistic reflections; no sky, horizon, shore, light caustics, foam islands, text or objects. Opaque albedo for stylized puddles, medium brightness.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-5b7bfa9c-cc27-4503-8334-ed92e4b4036b.png"
+    },
+    {
+      "name": "tablet-casing",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/tablet-casing.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "870713014CAE47ADD1E4837E6FCF6489BF04869AF6B39D13EF136B1049AD18E5",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. The flat painted surface of a battered hotel staff terminal: desaturated oxblood-burgundy enamel over dull steel, scraped grey metal showing through scattered angular chips, worn scratches, oily grime near small worn patches. Full-frame material ONLY, no device silhouette, screen, buttons, screws, panel edges or labels. Clear coarse low-poly horror texture, not photographic clutter. Seamless all-over coating.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-352f6aa3-81ba-41c5-8322-9aac2c02b914.png"
+    },
+    {
+      "name": "tablet-screen",
+      "path": "Worst Hotel Ever/Assets/Art/Resources/Hotel/Textures/v1/tablet-screen.png",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "DAE2AA95D0D1796D686951B307F523C171862B3E0E7233929067DF056185FF00",
+      "prompt": "Use case: stylized-concept. Asset type: original production tileable game ALBEDO, single square 1024x1024 swatch filling entire frame. Grim, tactile, worn low-poly cooperative horror hotel; restrained hand-painted shapes, rough old game art, not glossy photorealism. Seamless on all four edges, evenly distributed detail, no focal point or vignette. Neutral even illumination; NO baked shadows, light source, room, perspective, objects, text, logo, watermark, contact sheet, or border. Special UI BACKGROUND texture rather than world surface: dark grey-green phosphor monitor glass, very restrained diffuse fingerprint smudges and dust near the edges, faint fine static grain and subtle horizontal phosphor bands, smooth quiet unobstructed center. Rectangle landscape 1536x1024 filling frame, orthographic. No text, letters, UI controls, icons, borders, cracks, objects or tablet shape. Low contrast so live pale-green type above it stays perfectly readable; non-tiled single glass screen.",
+      "generatorOutput": "C:\\Users\\Lomonimus\\.codex\\generated_images\\01a0c4ca-8d11-7ea0-8736-62c94735d137\\exec-e54a8798-c49f-4a28-aa5d-cc386becfd4d.png"
+    }
+  ]
+}

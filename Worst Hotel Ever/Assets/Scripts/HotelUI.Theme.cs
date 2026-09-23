@@ -5,21 +5,21 @@ namespace WorstHotel
 {
     public sealed partial class HotelUI
     {
-        readonly Color documentInk=new Color(.105f,.18f,.15f),documentMuted=new Color(.28f,.36f,.28f);
-        readonly Color documentPaper=new Color(.80f,.85f,.70f),documentShade=new Color(.69f,.76f,.61f);
-        readonly Color stamp=new Color(.37f,.14f,.14f),brass=new Color(.58f,.49f,.30f);
+        readonly Color documentInk=new Color(.86f,.92f,.77f),documentMuted=new Color(.73f,.80f,.69f);
+        readonly Color documentPaper=new Color(.063f,.09f,.075f),documentShade=new Color(.14f,.20f,.16f);
+        readonly Color stamp=new Color(.98f,.83f,.56f),brass=new Color(.44f,.48f,.33f);
         readonly Dictionary<string,bool> folds=new Dictionary<string,bool>();
         readonly List<Texture2D> uiTextures=new List<Texture2D>();
         Texture2D[] corners;
+        Texture2D casingTexture,screenTexture,rubberTexture,metalTexture;
         readonly Dictionary<string,Rect> buttonRects=new Dictionary<string,Rect>();
         public IReadOnlyDictionary<string,Rect> ButtonRectsForTest=>buttonRects;
-        Texture2D Solid(Color color)
-        {
-            var texture=new Texture2D(1,1,TextureFormat.RGBA32,false){hideFlags=HideFlags.HideAndDontSave};
-            texture.SetPixel(0,0,color);texture.Apply();uiTextures.Add(texture);return texture;
-        }
         void InitTheme()
         {
+            casingTexture=HotelTextureLibrary.GetTexture(HotelTextureId.TabletCasing);
+            screenTexture=HotelTextureLibrary.GetTexture(HotelTextureId.TabletScreen);
+            rubberTexture=HotelTextureLibrary.GetTexture(HotelTextureId.Rubber);
+            metalTexture=HotelTextureLibrary.GetTexture(HotelTextureId.Metal);
             corners=new Texture2D[4];
             for(int k=0;k<4;k++) {
                 var t=new Texture2D(32,32,TextureFormat.RGBA32,false){hideFlags=HideFlags.HideAndDontSave,filterMode=FilterMode.Bilinear};
@@ -30,20 +30,43 @@ namespace WorstHotel
                 t.Apply();uiTextures.Add(t);corners[k]=t;
             }
             var input=GUI.skin.textField;
-            input.normal.background=Solid(new Color(.89f,.92f,.80f));
+            input.normal.background=screenTexture;
             input.hover.background=input.normal.background;input.focused.background=input.normal.background;
             input.normal.textColor=documentInk;input.hover.textColor=documentInk;input.focused.textColor=documentInk;
             GUI.skin.settings.cursorColor=stamp;GUI.skin.settings.selectionColor=documentShade;
-            GUI.skin.verticalScrollbar.normal.background=Solid(documentShade);GUI.skin.verticalScrollbar.fixedWidth=14;
+            GUI.skin.verticalScrollbar.normal.background=screenTexture;GUI.skin.verticalScrollbar.fixedWidth=14;
             var thumb=GUI.skin.verticalScrollbarThumb;
-            thumb.normal.background=Solid(documentMuted);thumb.hover.background=thumb.normal.background;thumb.active.background=thumb.normal.background;
+            thumb.normal.background=metalTexture;thumb.hover.background=thumb.normal.background;thumb.active.background=thumb.normal.background;
             thumb.border=new RectOffset(2,2,2,2);
-            GUI.skin.horizontalSlider.normal.background=Solid(documentMuted);
-            GUI.skin.horizontalSliderThumb.normal.background=Solid(stamp);
+            GUI.skin.horizontalSlider.normal.background=rubberTexture;
+            GUI.skin.horizontalSliderThumb.normal.background=metalTexture;
             GUI.skin.horizontalSliderThumb.hover.background=GUI.skin.horizontalSliderThumb.normal.background;
             GUI.skin.horizontalSliderThumb.active.background=GUI.skin.horizontalSliderThumb.normal.background;
         }
         void OnDestroy(){foreach(var texture in uiTextures)if(texture!=null)Destroy(texture);}
+        // Textures are shared immutable Resources assets, never owned/destroyed by this component.
+        // Pixel-height strips texture the entire chamfer, including the corner triangles.
+        // Continuous UVs avoid solid corner patches; this only runs while a widget is drawn.
+        void TexturedCutBox(Rect r,float cut,Texture2D texture,Color tint,float tilePixels=0)
+        {
+            if(r.width<=0||r.height<=0)return;
+            cut=Mathf.Clamp(cut,0,Mathf.Min(r.width,r.height)*.5f);
+            if(texture==null){CutBox(r,cut,tint);return;}
+            void Strip(Rect part)
+            {
+                if(part.width<=0||part.height<=0)return;
+                float ux=tilePixels>0?r.width/tilePixels:1,uy=tilePixels>0?r.height/tilePixels:1;
+                var uv=new Rect((part.x-r.x)/r.width*ux,(1-(part.yMax-r.y)/r.height)*uy,part.width/r.width*ux,part.height/r.height*uy);
+                Color old=GUI.color;GUI.color=tint;GUI.DrawTextureWithTexCoords(part,texture,uv);GUI.color=old;
+            }
+            Strip(new Rect(r.x,r.y+cut,r.width,r.height-2*cut));
+            int rows=Mathf.CeilToInt(cut*Mathf.Clamp(Mathf.Abs(GUI.matrix.m11),.5f,2));
+            for(int i=0;i<rows;i++) {
+                float y=cut*i/rows,h=cut/rows,inset=cut-y-h*.5f;
+                Strip(new Rect(r.x+inset,r.y+y,r.width-2*inset,h));
+                Strip(new Rect(r.x+inset,r.yMax-y-h,r.width-2*inset,h));
+            }
+        }
         void CutBox(Rect r,float cut,Color color)
         {
             if(r.width<=0||r.height<=0)return;
@@ -66,24 +89,25 @@ namespace WorstHotel
         Color ThemeText(Color requested)
         {
             if(!paperSurface)return requested;
-            if(requested==gold||requested==red)return stamp;
+            if(requested==gold)return stamp;
+            if(requested==red)return new Color(.98f,.53f,.40f);
             if(requested==muted)return documentMuted;
-            if(requested==green)return new Color(.12f,.32f,.22f);
+            if(requested==green)return new Color(.58f,.84f,.63f);
             return documentInk;
         }
         void DrawButtonSurface(Rect r,bool enabled,bool accent,bool hover)
         {
-            Color fill=accent?new Color(.18f,.30f,.24f):hover?new Color(.61f,.69f,.52f):documentShade;
-            if(!paperSurface)fill=hover?new Color(.38f,.25f,.22f):new Color(.16f,.16f,.14f);
-            if(!enabled)fill=new Color(.74f,.79f,.66f);
-            CutBox(new Rect(r.x,r.y+2,r.width,r.height),6,new Color(.12f,.18f,.13f,.35f));
-            CutBox(r,6,fill);
+            Color fill=accent?new Color(.43f,.53f,.34f):hover?new Color(.37f,.49f,.39f):new Color(.23f,.34f,.27f);
+            if(!paperSurface)fill=hover?new Color(.44f,.40f,.29f):new Color(.29f,.29f,.24f);
+            if(!enabled)fill=new Color(.17f,.23f,.19f);
+            CutBox(new Rect(r.x,r.y+3,r.width,r.height),6,new Color(.015f,.02f,.018f,.8f));
+            TexturedCutBox(r,6,metalTexture,fill,180);
             if(accent&&enabled)Box(new Rect(r.x+4,r.y+7,3,r.height-14),new Color(.86f,.69f,.39f));
-            else Box(new Rect(r.x+7,r.yMax-2,r.width-14,1),new Color(.23f,.35f,.24f,.6f));
+            else Box(new Rect(r.x+7,r.yMax-2,r.width-14,1),new Color(.42f,.52f,.38f,.5f));
         }
         void Screw(float x,float y)
         {
-            CutBox(new Rect(x-6,y-6,12,12),4,new Color(.52f,.48f,.36f));
+            TexturedCutBox(new Rect(x-6,y-6,12,12),4,metalTexture,new Color(.73f,.69f,.53f),32);
             Line(new Vector2(x-3,y-2),new Vector2(x+3,y+2),2,new Color(.10f,.10f,.085f));
         }
         void DrawDocument(Rect r)
@@ -94,20 +118,20 @@ namespace WorstHotel
             // Protective bumpers, molded body, inset LCD, grille and physical home key.
             CutBox(new Rect(111,91,1232,760),40,new Color(0,0,0,.35f));
             CutBox(new Rect(95,66,1250,776),40,new Color(.07f,.075f,.07f));
-            CutBox(new Rect(106,75,1228,755),32,new Color(.44f,.22f,.20f));
-            CutBox(new Rect(113,83,1214,736),29,new Color(.29f,.115f,.12f));
+            TexturedCutBox(new Rect(106,75,1228,755),32,metalTexture,new Color(.51f,.43f,.33f),320);
+            TexturedCutBox(new Rect(113,83,1214,736),29,casingTexture,new Color(.87f,.83f,.78f),600);
             foreach(float x in new[]{113f,1264f}) {
-                CutBox(new Rect(x,86,66,57),13,new Color(.115f,.115f,.105f));
-                CutBox(new Rect(x,756,66,54),13,new Color(.115f,.115f,.105f));
+                TexturedCutBox(new Rect(x,86,66,57),13,rubberTexture,new Color(.50f,.51f,.46f),85);
+                TexturedCutBox(new Rect(x,756,66,54),13,rubberTexture,new Color(.50f,.51f,.46f),85);
             }
             Text(new Rect(188,92,337,23),"GRAND / SERVICE SYSTEM",small,paper);
             for(int i=0;i<9;i++)Box(new Rect(663+i*13,100,7,3),new Color(.06f,.055f,.05f));
             CutBox(new Rect(1210,98,9,9),3,new Color(.58f,.81f,.49f));
             Text(new Rect(1112,90,94,24),"STAFF-01",small,paper);
             CutBox(new Rect(r.x-14,r.y-13,r.width+28,r.height+26),12,new Color(.10f,.12f,.10f));
-            CutBox(new Rect(r.x-5,r.y-5,r.width+10,r.height+10),7,new Color(.40f,.44f,.34f));
-            Box(r,documentPaper);
-            for(int y=0;y<(int)r.height;y+=6)Box(new Rect(r.x,r.y+y,r.width,1),new Color(.12f,.23f,.14f,.022f));
+            TexturedCutBox(new Rect(r.x-5,r.y-5,r.width+10,r.height+10),7,rubberTexture,new Color(.60f,.67f,.53f),160);
+            TexturedCutBox(r,0,screenTexture,new Color(.80f,.95f,.83f));
+            for(int y=0;y<(int)r.height;y+=6)Box(new Rect(r.x,r.y+y,r.width,1),new Color(.36f,.49f,.31f,.035f));
             Screw(138,112);Screw(1303,112);Screw(138,782);Screw(1303,782);
             for(int j=0;j<5;j++)Box(new Rect(1304,370+j*17,8,9),new Color(.09f,.075f,.065f));
             // Side grip moulding and small worn edges remain outside the touchscreen.
