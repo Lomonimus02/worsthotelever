@@ -7,6 +7,7 @@
 - [Как играть в опасные смены](README_DANGER.md)
 - [План планшета и минимального HUD](docs/TABLET_UI_PLAN.md)
 - [Проверки планшета и ограничения](docs/reports/qa-tablet-alpha1.md)
+- [Windows-сборка 1.2.0 и проверка архива](docs/reports/release-tablet-alpha1.md)
 - [Предыдущий план бумажного журнала](docs/UI_REDESIGN_PLAN.md)
 - [Предыдущая проверка интерфейса 1.1.1](docs/reports/qa-ui-alpha1.md)
 - [Сборка 1.1.1-ui-alpha1 и результаты упаковки](docs/reports/release-ui-alpha1.md)
